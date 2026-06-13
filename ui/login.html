@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in · pageserve</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/ui/assets/styles.css">
+  <script src="/ui/assets/core.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 min-h-screen flex items-center justify-center px-4 relative overflow-hidden">
+
+  <!-- Ambient gradient backdrop -->
+  <div class="pointer-events-none absolute inset-0 -z-10">
+    <div class="absolute -top-32 left-1/2 -translate-x-1/2 w-[640px] h-[640px] rounded-full bg-brand-500/20 dark:bg-brand-500/15 blur-3xl"></div>
+    <div class="absolute bottom-0 right-0 w-[420px] h-[420px] rounded-full bg-rose-400/10 blur-3xl"></div>
+  </div>
+
+  <button onclick="PS.toggleTheme()" class="ps-icon-btn fixed top-4 right-4">
+    <span id="theme-icon"></span>
+  </button>
+
+  <div class="w-full max-w-sm" x-data="login()" x-init="init()" x-cloak>
+    <div class="flex items-center justify-center gap-2.5 mb-8">
+      <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white flex items-center justify-center shadow-[0_8px_24px_-6px_rgb(220_38_38/.55)]" x-html="PS.icon('spark','w-6 h-6')"></div>
+      <div><div class="font-semibold text-lg leading-tight tracking-tight">PageServe</div><div class="text-xs text-zinc-400">self-hosted document RAG</div></div>
+    </div>
+
+    <div class="ps-card ps-modal-panel rounded-2xl p-7">
+      <h1 class="text-lg font-semibold tracking-tight mb-1">Welcome back</h1>
+      <p class="text-sm text-zinc-500 mb-6">Sign in to your admin console</p>
+
+      <div x-show="error" x-transition class="mb-4 p-3 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-xl text-red-700 dark:text-red-400 text-sm" x-text="error"></div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1.5">Email</label>
+          <input type="email" x-model="email" @keydown.enter="submit()" autofocus class="ps-input" placeholder="admin@company.com">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1.5">Password</label>
+          <input type="password" x-model="password" @keydown.enter="submit()" class="ps-input" placeholder="••••••••">
+        </div>
+        <button @click="submit()" :disabled="loading" class="ps-btn ps-btn-primary w-full py-2.5">
+          <span x-show="loading" class="ps-spin" x-html="PS.icon('refresh','w-4 h-4')"></span>
+          <span x-text="loading ? 'Signing in…' : 'Sign in'"></span>
+        </button>
+      </div>
+    </div>
+    <p class="text-center text-xs text-zinc-400 mt-6">pageserve-server · self-hosted</p>
+  </div>
+
+<script>
+function login() {
+  return {
+    email: "", password: "", error: "", loading: false,
+    async init() {
+      PS._syncThemeIcon();
+      // Already signed in? bounce to dashboard.
+      if (sessionStorage.getItem("ps-refresh")) {
+        try { await PS.refresh(); location.href = "/ui/index.html"; } catch { sessionStorage.removeItem("ps-refresh"); }
+      }
+    },
+    async submit() {
+      if (!this.email || !this.password) { this.error = "Enter your email and password"; return; }
+      this.loading = true; this.error = "";
+      try { await PS.login(this.email, this.password); location.href = "/ui/index.html"; }
+      catch (e) { this.error = e.message; }
+      finally { this.loading = false; }
+    },
+  };
+}
+</script>
+</body>
+</html>

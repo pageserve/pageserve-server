@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings · pageserve</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/ui/assets/styles.css">
+  <script src="/ui/assets/core.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex">
+  <aside id="sidebar"></aside>
+  <div class="flex-1 flex flex-col h-screen overflow-hidden">
+    <header id="topbar"></header>
+    <main class="flex-1 overflow-auto p-6 max-w-2xl w-full mx-auto space-y-5" x-data="page()" x-init="boot()" x-cloak>
+
+      <!-- Profile -->
+      <section class="ps-card rounded-2xl p-6">
+        <h3 class="font-semibold tracking-tight">Profile</h3>
+        <p class="text-sm text-zinc-500 mt-0.5 mb-5">Update how your account appears across the console.</p>
+
+        <div class="flex items-center gap-4 mb-5">
+          <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white flex items-center justify-center text-2xl font-semibold shadow-[0_4px_14px_-4px_rgb(220_38_38/.5)]" x-text="initial()"></div>
+          <div class="min-w-0">
+            <div class="font-medium truncate" x-text="user?.full_name || user?.email"></div>
+            <span class="ps-badge mt-1 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300 capitalize" x-text="user?.role"></span>
+          </div>
+        </div>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-medium text-zinc-500 mb-1.5">Email</label>
+            <input :value="user?.email" disabled class="ps-input opacity-60 cursor-not-allowed">
+            <p class="text-xs text-zinc-400 mt-1">Email can't be changed here — ask an admin.</p>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-zinc-500 mb-1.5">Full name</label>
+            <input x-model="profile.full_name" placeholder="Your name" class="ps-input" @keydown.enter="saveProfile()">
+          </div>
+        </div>
+        <div class="flex justify-end mt-5">
+          <button @click="saveProfile()" :disabled="savingProfile" class="ps-btn ps-btn-primary">
+            <span x-show="savingProfile" class="ps-spin" x-html="PS.icon('refresh','w-4 h-4')"></span>
+            <span x-text="savingProfile ? 'Saving…' : 'Save changes'"></span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Password -->
+      <section class="ps-card rounded-2xl p-6">
+        <h3 class="font-semibold tracking-tight">Password</h3>
+        <p class="text-sm text-zinc-500 mt-0.5 mb-5">Changing your password signs you out of all sessions.</p>
+
+        <div class="space-y-4">
+          <div>
+            <label class="block text-xs font-medium text-zinc-500 mb-1.5">Current password</label>
+            <input type="password" x-model="pw.current_password" class="ps-input" autocomplete="current-password">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-zinc-500 mb-1.5">New password</label>
+            <input type="password" x-model="pw.new_password" class="ps-input" autocomplete="new-password">
+            <p class="text-xs mt-1" :class="pw.new_password && pw.new_password.length < 8 ? 'text-red-500' : 'text-zinc-400'">At least 8 characters.</p>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-zinc-500 mb-1.5">Confirm new password</label>
+            <input type="password" x-model="pw.confirm" class="ps-input" autocomplete="new-password" @keydown.enter="changePassword()">
+            <p x-show="pw.confirm && pw.confirm !== pw.new_password" class="text-xs text-red-500 mt-1">Passwords don't match.</p>
+          </div>
+        </div>
+        <div class="flex justify-end mt-5">
+          <button @click="changePassword()" :disabled="savingPw || !pw.current_password || !pw.new_password || !pw.confirm" class="ps-btn ps-btn-primary">
+            <span x-show="savingPw" class="ps-spin" x-html="PS.icon('refresh','w-4 h-4')"></span>
+            <span x-text="savingPw ? 'Updating…' : 'Change password'"></span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Appearance -->
+      <section class="ps-card rounded-2xl p-6">
+        <h3 class="font-semibold tracking-tight">Appearance</h3>
+        <p class="text-sm text-zinc-500 mt-0.5 mb-5">Choose how the console looks on this device.</p>
+        <div class="flex rounded-xl border border-zinc-300 dark:border-zinc-700 overflow-hidden text-sm p-0.5 bg-zinc-100 dark:bg-zinc-800/60 w-fit">
+          <button @click="setTheme(false)" :class="!dark ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm' : 'text-zinc-500'" class="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg transition-all">
+            <span x-html="PS.icon('sun','w-4 h-4')"></span> Light
+          </button>
+          <button @click="setTheme(true)" :class="dark ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm' : 'text-zinc-500'" class="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg transition-all">
+            <span x-html="PS.icon('moon','w-4 h-4')"></span> Dark
+          </button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+<script>
+function page() {
+  return {
+    user: null,
+    profile: { full_name: "" },
+    pw: { current_password: "", new_password: "", confirm: "" },
+    savingProfile: false, savingPw: false, dark: false,
+    async boot() {
+      this.user = await PS.boot("settings", "Settings", "Manage your account");
+      this.profile.full_name = this.user?.full_name || "";
+      this.dark = document.documentElement.classList.contains("dark");
+    },
+    initial() { return (this.user?.full_name || this.user?.email || "?")[0].toUpperCase(); },
+    async saveProfile() {
+      this.savingProfile = true;
+      try {
+        const u = await PS.api("PUT", "/auth/me", { full_name: this.profile.full_name.trim() || null });
+        PS.user = u; this.user = u;
+        sessionStorage.setItem("ps-user", JSON.stringify(u));
+        PS.mountShell("settings", "Settings", "Manage your account"); // refresh sidebar/topbar
+        PS.toast("Profile updated", "success");
+      } catch (e) { PS.toast(e.message, "error"); }
+      finally { this.savingProfile = false; }
+    },
+    async changePassword() {
+      if (this.pw.new_password.length < 8) { PS.toast("New password must be at least 8 characters", "error"); return; }
+      if (this.pw.new_password !== this.pw.confirm) { PS.toast("Passwords don't match", "error"); return; }
+      this.savingPw = true;
+      try {
+        await PS.api("PUT", "/auth/me/password", { current_password: this.pw.current_password, new_password: this.pw.new_password });
+        PS.toast("Password changed — please sign in again", "success");
+        setTimeout(() => PS.logout(), 1400);
+      } catch (e) { PS.toast(e.message, "error"); this.savingPw = false; }
+    },
+    setTheme(d) {
+      if (d !== document.documentElement.classList.contains("dark")) PS.toggleTheme();
+      this.dark = d;
+    },
+  };
+}
+</script>
+</body>
+</html>

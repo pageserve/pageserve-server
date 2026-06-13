@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Users · pageserve</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/ui/assets/styles.css">
+  <script src="/ui/assets/core.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex">
+  <aside id="sidebar"></aside>
+  <div class="flex-1 flex flex-col h-screen overflow-hidden">
+    <header id="topbar"></header>
+    <main class="flex-1 overflow-auto p-6 max-w-5xl w-full mx-auto" x-data="page()" x-init="boot()" x-cloak>
+
+      <div class="flex items-center justify-between mb-5">
+        <p class="text-sm text-zinc-500" x-text="users.length + (users.length===1?' user':' users')"></p>
+        <button @click="showCreate=true" class="ps-btn ps-btn-primary" x-html="PS.icon('plus','w-4 h-4')+'<span>New user</span>'"></button>
+      </div>
+
+      <div class="ps-card rounded-2xl overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="text-xs uppercase text-zinc-400 border-b border-zinc-200 dark:border-zinc-800">
+            <tr><th class="text-left font-medium px-4 py-3">User</th><th class="text-left font-medium px-4 py-3">Role</th><th class="text-left font-medium px-4 py-3">Status</th><th class="text-left font-medium px-4 py-3">Last sign-in</th><th class="px-4 py-3"></th></tr>
+          </thead>
+          <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
+            <template x-for="u in users" :key="u.id">
+              <tr class="ps-row hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+                <td class="px-4 py-3"><div class="flex items-center gap-2.5"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-brand-100 to-brand-200 dark:from-brand-500/30 dark:to-brand-600/20 text-brand-700 dark:text-brand-200 flex items-center justify-center text-xs font-semibold" x-text="(u.full_name||u.email||'?')[0].toUpperCase()"></div><div><div class="font-medium" x-text="u.full_name||u.email"></div><div class="text-xs text-zinc-400" x-text="u.email"></div></div></div></td>
+                <td class="px-4 py-3"><select @change="setRole(u, $event.target.value)" class="text-xs bg-transparent border border-zinc-300 dark:border-zinc-700 rounded-lg px-2 py-1"><option value="member" :selected="u.role==='member'">member</option><option value="admin" :selected="u.role==='admin'">admin</option></select></td>
+                <td class="px-4 py-3"><span class="ps-badge" :class="u.is_active?'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400':'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400'" x-text="u.is_active?'active':'inactive'"></span></td>
+                <td class="px-4 py-3 text-zinc-500 text-xs" x-text="u.last_login_at?PS.fmtTime(u.last_login_at):'—'"></td>
+                <td class="px-4 py-3 text-right"><button x-show="u.is_active && u.id!==PS.user.id" @click="deactivate(u)" class="text-zinc-400 hover:text-red-500 text-xs transition-colors">Deactivate</button></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <div x-show="showCreate" x-transition.opacity class="ps-modal-backdrop fixed inset-0 bg-black/40 dark:bg-black/60 flex items-center justify-center z-50 p-4" @click.self="showCreate=false">
+        <div class="ps-modal-panel ps-card rounded-2xl p-6 w-full max-w-md shadow-xl">
+          <h3 class="font-semibold tracking-tight mb-4">New user</h3>
+          <div class="space-y-3">
+            <input x-model="form.email" placeholder="email@company.com" class="ps-input">
+            <input x-model="form.full_name" placeholder="Full name" class="ps-input">
+            <select x-model="form.role" class="ps-select"><option value="member">member</option><option value="admin">admin</option></select>
+          </div>
+          <div class="flex gap-2 justify-end mt-5">
+            <button @click="showCreate=false" class="ps-btn ps-btn-ghost">Cancel</button>
+            <button @click="create()" class="ps-btn ps-btn-primary">Create</button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+<script>
+function page() {
+  return {
+    users: [], showCreate: false, form: { email: "", full_name: "", role: "member" },
+    async boot() { await PS.boot("users", "Users", "Accounts & permissions"); await this.load(); },
+    async load() { try { this.users = await PS.api("GET", "/admin/users?active=false"); } catch (e) { PS.toast(e.message, "error"); } },
+    async create() {
+      try {
+        const r = await PS.api("POST", "/admin/users", this.form); this.showCreate = false; this.form = { email: "", full_name: "", role: "member" }; await this.load();
+        PS.toast("User created", "success");
+        if (r.temp_password) await PS.showSecret({ title: "User created", label: "Temporary password", value: r.temp_password, note: "Copy it now — it won't be shown again." });
+      }
+      catch (e) { PS.toast(e.message, "error"); }
+    },
+    async setRole(u, role) { if (role === u.role) return; try { await PS.api("PUT", `/admin/users/${u.id}`, { role }); u.role = role; PS.toast("Role updated", "success"); } catch (e) { PS.toast(e.message, "error"); this.load(); } },
+    async deactivate(u) {
+      if (!await PS.confirm({ title: "Deactivate user", message: `${u.email} will lose access until reactivated.`, confirmText: "Deactivate", danger: true })) return;
+      try { await PS.api("DELETE", `/admin/users/${u.id}`); PS.toast("User deactivated", "success"); this.load(); } catch (e) { PS.toast(e.message, "error"); }
+    },
+  };
+}
+</script>
+</body>
+</html>

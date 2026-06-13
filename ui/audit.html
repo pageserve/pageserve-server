@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audit Log · pageserve</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/ui/assets/styles.css">
+  <script src="/ui/assets/core.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex">
+  <aside id="sidebar"></aside>
+  <div class="flex-1 flex flex-col h-screen overflow-hidden">
+    <header id="topbar"></header>
+    <main class="flex-1 overflow-auto p-6 max-w-5xl w-full mx-auto" x-data="page()" x-init="boot()" x-cloak>
+
+      <div class="flex items-center gap-3 mb-5">
+        <select x-model="action" @change="load()" class="ps-select w-auto">
+          <option value="">All actions</option>
+          <template x-for="a in actions" :key="a"><option :value="a" x-text="a"></option></template>
+        </select>
+        <button @click="exportCsv()" class="ps-btn ps-btn-ghost ml-auto">Export CSV</button>
+      </div>
+
+      <div class="ps-card rounded-2xl overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="text-xs uppercase text-zinc-400 border-b border-zinc-200 dark:border-zinc-800">
+            <tr><th class="text-left font-medium px-4 py-3">Time</th><th class="text-left font-medium px-4 py-3">Action</th><th class="text-left font-medium px-4 py-3">User</th><th class="text-left font-medium px-4 py-3">Resource</th><th class="text-left font-medium px-4 py-3">IP</th></tr>
+          </thead>
+          <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
+            <template x-for="a in items" :key="a.id">
+              <tr class="ps-row hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+                <td class="px-4 py-2.5 text-zinc-500 text-xs whitespace-nowrap" x-text="PS.fmtTime(a.created_at)"></td>
+                <td class="px-4 py-2.5"><span class="text-xs px-2 py-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 font-medium" x-text="a.action"></span></td>
+                <td class="px-4 py-2.5 text-zinc-600 dark:text-zinc-400" x-text="a.user_email || '—'"></td>
+                <td class="px-4 py-2.5 text-zinc-500 truncate max-w-xs" x-text="a.resource || '—'"></td>
+                <td class="px-4 py-2.5 text-zinc-400 font-mono text-xs" x-text="a.ip || '—'"></td>
+              </tr>
+            </template>
+            <tr x-show="items.length===0"><td colspan="5" class="px-4 py-14 text-center text-zinc-400">No log entries yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="text-xs text-zinc-400 mt-3" x-text="total + (total===1?' record':' records')"></p>
+
+    </main>
+  </div>
+
+<script>
+function page() {
+  return {
+    items: [], total: 0, action: "",
+    actions: ["login", "logout", "upload", "delete_doc", "reindex", "query", "key_create", "key_revoke", "user_create", "user_update"],
+    async boot() { await PS.boot("audit", "Audit Log", "System activity history"); await this.load(); },
+    async load() {
+      try { const q = this.action ? `&action=${this.action}` : ""; const r = await PS.api("GET", `/admin/audit?limit=100${q}`); this.items = r.items; this.total = r.total; }
+      catch (e) { PS.toast(e.message, "error"); }
+    },
+    async exportCsv() {
+      try {
+        const res = await fetch("/admin/audit/export?format=csv", { headers: { Authorization: `Bearer ${PS.token}` } });
+        if (!res.ok) throw new Error("Export failed");
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = "audit_export.csv"; a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) { PS.toast(e.message, "error"); }
+    },
+  };
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Playground · pageserve</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/ui/assets/styles.css">
+  <script src="/ui/assets/core.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex">
+  <aside id="sidebar"></aside>
+  <div class="flex-1 flex flex-col h-screen overflow-hidden">
+    <header id="topbar"></header>
+    <main class="flex-1 flex flex-col overflow-hidden" x-data="page()" x-init="boot()" x-cloak>
+
+      <!-- Toolbar -->
+      <div class="flex items-center gap-3 px-6 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/60 backdrop-blur">
+        <select x-model="projectId" @change="onProject()" class="ps-select w-auto">
+          <option value="">Select a project…</option>
+          <template x-for="p in projects" :key="p.id"><option :value="p.id" x-text="p.name"></option></template>
+        </select>
+        <div class="flex rounded-xl border border-zinc-300 dark:border-zinc-700 overflow-hidden text-sm p-0.5 bg-zinc-100 dark:bg-zinc-800/60">
+          <button @click="setMode('answer')" :class="mode==='answer'?'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm':'text-zinc-500'" class="px-3.5 py-1.5 rounded-lg transition-all">Answer</button>
+          <button @click="setMode('search')" :class="mode==='search'?'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm':'text-zinc-500'" class="px-3.5 py-1.5 rounded-lg transition-all">Search</button>
+        </div>
+        <span class="text-xs text-zinc-400 ml-auto font-mono" x-show="result?.elapsed_ms" x-text="(result?.elapsed_ms||0)+' ms'"></span>
+      </div>
+
+      <div class="flex-1 flex overflow-hidden">
+        <!-- Left -->
+        <div class="w-80 shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white/60 dark:bg-zinc-900/60 flex flex-col">
+          <div class="p-4 border-b border-zinc-200 dark:border-zinc-800">
+            <div class="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Documents</div>
+            <div class="space-y-1.5 text-sm">
+              <label class="flex items-center gap-2 cursor-pointer"><input type="radio" value="all" x-model="docMode" class="accent-brand-600"> All indexed documents</label>
+              <label class="flex items-center gap-2 cursor-pointer"><input type="radio" value="select" x-model="docMode" class="accent-brand-600"> Choose specific</label>
+            </div>
+            <div x-show="docMode==='select'" class="mt-2 space-y-1 max-h-44 overflow-y-auto pr-1">
+              <template x-for="d in docs" :key="d.doc_id">
+                <label class="flex items-center gap-2 text-sm py-0.5 cursor-pointer" :class="d.status!=='completed'?'opacity-40':''">
+                  <input type="checkbox" :value="d.doc_id" x-model="selectedDocIds" :disabled="d.status!=='completed'" class="accent-brand-600">
+                  <span class="truncate" x-text="d.name"></span>
+                </label>
+              </template>
+              <div x-show="docs.length===0" class="text-xs text-zinc-400">No documents</div>
+            </div>
+          </div>
+          <div class="p-4 flex-1 flex flex-col">
+            <div class="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Question</div>
+            <textarea x-model="question" @input="persist()" @keydown.ctrl.enter="run()"
+                      class="ps-input flex-1 resize-none"
+                      placeholder="Ask a question… (Ctrl+Enter to run)"></textarea>
+            <button @click="run()" :disabled="loading || !projectId || !question.trim()" class="ps-btn ps-btn-primary mt-3 w-full py-2.5">
+              <span x-show="loading" class="ps-spin" x-html="PS.icon('refresh','w-4 h-4')"></span>
+              <span x-text="loading ? 'Running…' : 'Run query'"></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Right -->
+        <div class="flex-1 overflow-auto p-6">
+          <div x-show="!result && !loading" class="h-full flex items-center justify-center">
+            <div class="text-center text-zinc-400">
+              <div class="w-14 h-14 mx-auto mb-3 rounded-2xl bg-gradient-to-br from-brand-100 to-brand-200 dark:from-brand-500/20 dark:to-brand-600/10 text-brand-600 dark:text-brand-300 flex items-center justify-center" x-html="PS.icon('playground','w-7 h-7')"></div>
+              <p class="text-sm">Select a project and documents, then ask a question</p>
+            </div>
+          </div>
+
+          <!-- Tool steps + stream -->
+          <div x-show="loading || steps.length" class="space-y-2 mb-4">
+            <template x-for="s in steps" :key="s.id">
+              <div class="flex items-center gap-3 px-3 py-2.5 ps-card rounded-xl text-sm" :class="s.status==='done'?'opacity-60':''">
+                <span class="text-zinc-400" x-text="s.name==='get_document_structure'?'🗂':(s.name==='get_page_content'?'📖':'⚙️')"></span>
+                <span class="flex-1" x-text="label(s.name)"></span>
+                <span x-show="s.status==='running'" class="ps-spin text-brand-500" x-html="PS.icon('refresh','w-3.5 h-3.5')"></span>
+                <span x-show="s.status==='done'" class="text-xs text-zinc-400 font-mono" x-text="(s.elapsed||0)+'s'"></span>
+              </div>
+            </template>
+          </div>
+
+          <!-- Answer -->
+          <div x-show="mode==='answer' && (stream || result)" class="space-y-4">
+            <div class="ps-card rounded-2xl p-5">
+              <div class="flex items-center gap-2 mb-3"><span class="text-xs font-medium text-zinc-500 uppercase tracking-wide">Answer</span><span x-show="result?.cached" class="ps-badge bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">✓ cached</span></div>
+              <div class="ps-prose" x-html="PS.renderCitations(stream || result?.answer)"></div>
+              <span x-show="loading" class="ps-cursor"></span>
+            </div>
+            <template x-for="src in (result?.sources||[])" :key="src.doc_id">
+              <div class="space-y-2">
+                <template x-for="rp in src.raw_pages" :key="rp.page">
+                  <details class="ps-card rounded-xl group">
+                    <summary class="px-4 py-2.5 cursor-pointer text-sm flex items-center gap-2 select-none">
+                      <span class="text-zinc-400 group-open:rotate-90 transition-transform" x-html="PS.icon('chevron','w-4 h-4')"></span>
+                      <span>📄 <span x-text="docName(src.doc_id)"></span> — page <span x-text="rp.page"></span></span>
+                    </summary>
+                    <pre class="px-4 pb-4 text-xs whitespace-pre-wrap font-sans text-zinc-600 dark:text-zinc-400 border-t border-zinc-100 dark:border-zinc-800 pt-3" x-text="rp.content"></pre>
+                  </details>
+                </template>
+              </div>
+            </template>
+          </div>
+
+          <!-- Search -->
+          <div x-show="mode==='search' && result?.results" class="space-y-4">
+            <template x-for="r in (result?.results||[])" :key="r.doc_id">
+              <div class="ps-card rounded-2xl overflow-hidden">
+                <div class="px-4 py-2.5 border-b border-zinc-200 dark:border-zinc-800 text-sm font-medium">📄 <span x-text="docName(r.doc_id)"></span></div>
+                <template x-for="s in r.sections" :key="s.page">
+                  <div class="px-4 py-3 border-t border-zinc-100 dark:border-zinc-800 first:border-t-0">
+                    <div class="flex items-center justify-between"><span class="text-sm font-medium" x-text="s.title"></span><span class="text-xs text-zinc-400 font-mono">p.<span x-text="s.page"></span></span></div>
+                    <p class="text-sm text-zinc-500 mt-1" x-text="s.preview"></p>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+<script>
+function page() {
+  return {
+    projects: [], projectId: "", docs: [], docMode: "all", selectedDocIds: [],
+    mode: "answer", question: "", loading: false, steps: [], stream: "", result: null,
+    async boot() {
+      await PS.boot("playground", "Playground", "Query your documents directly");
+      try { this.projects = await PS.api("GET", "/admin/projects"); } catch (e) { PS.toast(e.message, "error"); }
+      this.projectId = PS.qs().get("project") || "";
+      this.mode = PS.qs().get("mode") || "answer";
+      if (this.projectId) { this.question = sessionStorage.getItem("ps-q-" + this.projectId) || ""; await this.loadDocs(); }
+    },
+    docName(id) { return (this.docs.find((d) => d.doc_id === id)?.name) || id.slice(0, 8); },
+    label(name) { return { get_document_structure: "Reading document structure", get_page_content: "Reading page content" }[name] || name; },
+    persist() { if (this.projectId) sessionStorage.setItem("ps-q-" + this.projectId, this.question); },
+    setMode(m) { this.mode = m; PS.setQuery({ mode: m }); },
+    async onProject() {
+      PS.setQuery({ project: this.projectId || null });
+      this.selectedDocIds = []; this.result = null; this.steps = []; this.stream = "";
+      this.question = this.projectId ? (sessionStorage.getItem("ps-q-" + this.projectId) || "") : "";
+      await this.loadDocs();
+    },
+    async loadDocs() {
+      this.docs = [];
+      if (!this.projectId) return;
+      try { const r = await PS.api("GET", `/admin/projects/${this.projectId}/documents`); this.docs = r.documents; }
+      catch (e) { PS.toast(e.message, "error"); }
+    },
+    async run() {
+      if (!this.projectId || !this.question.trim()) return;
+      this.loading = true; this.result = null; this.steps = []; this.stream = "";
+      const docIds = this.docMode === "all" ? this.docs.filter((d) => d.status === "completed").map((d) => d.doc_id) : this.selectedDocIds;
+      const stepMap = {};
+      try {
+        const res = await fetch("/admin/playground/query/stream", {
+          method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${PS.token}` },
+          body: JSON.stringify({ project_id: this.projectId, doc_ids: docIds, question: this.question, mode: this.mode }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || "Query failed");
+        const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
+        while (true) {
+          const { done, value } = await reader.read(); if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split("\n"); buf = lines.pop();
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const ev = JSON.parse(line.slice(6));
+            if (ev.type === "tool_start") { const s = { id: ev.id, name: ev.name, status: "running" }; stepMap[ev.id] = s; this.steps = [...this.steps, s]; }
+            else if (ev.type === "tool_done") { const s = stepMap[ev.id]; if (s) { s.status = "done"; s.elapsed = ev.elapsed; this.steps = [...this.steps]; } }
+            else if (ev.type === "token") { this.stream += ev.content; }
+            else if (ev.type === "sources") { this.result = { answer: this.stream, sources: ev.sources, cached: ev.cached }; }
+            else if (ev.type === "done") { if (this.mode === "search") this.result = { results: ev.results || [] }; }
+            else if (ev.type === "error") { PS.toast(ev.message, "error"); }
+          }
+        }
+      } catch (e) { PS.toast(e.message, "error"); }
+      finally { this.loading = false; }
+    },
+  };
+}
+</script>
+</body>
+</html>

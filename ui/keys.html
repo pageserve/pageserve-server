@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Keys · pageserve</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/ui/assets/styles.css">
+  <script src="/ui/assets/core.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex">
+  <aside id="sidebar"></aside>
+  <div class="flex-1 flex flex-col h-screen overflow-hidden">
+    <header id="topbar"></header>
+    <main class="flex-1 overflow-auto p-6 max-w-5xl w-full mx-auto" x-data="page()" x-init="boot()" x-cloak>
+
+      <div class="flex items-center gap-3 mb-5">
+        <select x-model="projectId" @change="onProject()" class="ps-select w-auto">
+          <option value="">Select a project…</option>
+          <template x-for="p in projects" :key="p.id"><option :value="p.id" x-text="p.name"></option></template>
+        </select>
+        <button :disabled="!projectId" @click="showCreate=true" class="ps-btn ps-btn-primary ml-auto" x-html="PS.icon('plus','w-4 h-4')+'<span>New key</span>'"></button>
+      </div>
+
+      <div class="ps-card rounded-2xl overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="text-xs uppercase text-zinc-400 border-b border-zinc-200 dark:border-zinc-800">
+            <tr><th class="text-left font-medium px-4 py-3">Name / Public key</th><th class="text-left font-medium px-4 py-3">Scopes</th><th class="text-left font-medium px-4 py-3">Requests</th><th class="text-left font-medium px-4 py-3">Status</th><th class="px-4 py-3"></th></tr>
+          </thead>
+          <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
+            <template x-for="k in keys" :key="k.id">
+              <tr class="ps-row hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+                <td class="px-4 py-3"><div class="font-medium" x-text="k.name"></div><code class="text-xs text-zinc-400" x-text="k.public_key"></code></td>
+                <td class="px-4 py-3 text-zinc-500" x-text="(k.scopes||[]).join(', ')"></td>
+                <td class="px-4 py-3 text-zinc-500" x-text="k.request_count"></td>
+                <td class="px-4 py-3"><span class="ps-badge" :class="k.is_active?'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400':'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400'" x-text="k.is_active?'active':'revoked'"></span></td>
+                <td class="px-4 py-3 text-right"><button x-show="k.is_active" @click="revoke(k)" class="ps-icon-btn !w-8 !h-8 hover:!text-red-500" title="Revoke" x-html="PS.icon('trash','w-4 h-4')"></button></td>
+              </tr>
+            </template>
+            <tr x-show="keys.length===0"><td colspan="5" class="px-4 py-14 text-center text-zinc-400" x-text="projectId?'No keys yet':'Select a project to view its keys'"></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Create modal -->
+      <div x-show="showCreate" x-transition.opacity class="ps-modal-backdrop fixed inset-0 bg-black/40 dark:bg-black/60 flex items-center justify-center z-50 p-4" @click.self="showCreate=false">
+        <div class="ps-modal-panel ps-card rounded-2xl p-6 w-full max-w-md shadow-xl">
+          <h3 class="font-semibold tracking-tight mb-4">New API key</h3>
+          <input x-model="form.name" placeholder="Key name (e.g. Production)" class="ps-input mb-4">
+          <div class="flex gap-4 text-sm mb-5">
+            <label class="flex items-center gap-2"><input type="checkbox" value="read" x-model="form.scopes" class="accent-brand-600"> read</label>
+            <label class="flex items-center gap-2"><input type="checkbox" value="write" x-model="form.scopes" class="accent-brand-600"> write</label>
+          </div>
+          <div class="flex gap-2 justify-end">
+            <button @click="showCreate=false" class="ps-btn ps-btn-ghost">Cancel</button>
+            <button @click="create()" class="ps-btn ps-btn-primary">Create</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reveal-once modal -->
+      <div x-show="newKey" x-transition.opacity class="ps-modal-backdrop fixed inset-0 bg-black/40 dark:bg-black/60 flex items-center justify-center z-50 p-4">
+        <div class="ps-modal-panel ps-card rounded-2xl p-6 w-full max-w-lg shadow-xl">
+          <div class="flex items-start gap-3 mb-5">
+            <div class="w-10 h-10 shrink-0 rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400 flex items-center justify-center" x-html="PS.icon('alert','w-5 h-5')"></div>
+            <div>
+              <h3 class="font-semibold tracking-tight">Save your API key</h3>
+              <p class="text-sm text-zinc-500 mt-0.5">The secret key is shown only once. Store it somewhere safe before closing.</p>
+            </div>
+          </div>
+          <template x-for="row in [['Public key','public_key'],['Secret key','secret_key']]" :key="row[1]">
+            <div class="mb-3">
+              <div class="text-xs text-zinc-500 uppercase tracking-wide mb-1.5" x-text="row[0]"></div>
+              <div class="flex items-center gap-2">
+                <code class="flex-1 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-3 py-2 text-sm break-all font-mono" x-text="newKey?.[row[1]]"></code>
+                <button @click="copy(newKey?.[row[1]])" class="ps-icon-btn shrink-0" title="Copy" x-html="PS.icon('copy','w-4 h-4')"></button>
+              </div>
+            </div>
+          </template>
+          <button @click="newKey=null; load()" class="ps-btn ps-btn-primary w-full mt-4">Done</button>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+<script>
+function page() {
+  return {
+    projects: [], projectId: "", keys: [], showCreate: false, form: { name: "", scopes: ["read", "write"] }, newKey: null,
+    async boot() {
+      await PS.boot("keys", "API Keys", "Manage API access for agents & the SDK");
+      try { this.projects = await PS.api("GET", "/admin/projects"); } catch (e) { PS.toast(e.message, "error"); }
+      this.projectId = PS.qs().get("project") || "";
+      if (this.projectId) await this.load();
+    },
+    async onProject() { PS.setQuery({ project: this.projectId || null }); await this.load(); },
+    async load() { if (!this.projectId) { this.keys = []; return; } try { this.keys = await PS.api("GET", `/admin/projects/${this.projectId}/keys`); } catch (e) { PS.toast(e.message, "error"); } },
+    async create() {
+      if (!this.form.scopes.length) { PS.toast("Select at least one scope", "error"); return; }
+      try { this.newKey = await PS.api("POST", `/admin/projects/${this.projectId}/keys`, this.form); this.showCreate = false; this.form = { name: "", scopes: ["read", "write"] }; }
+      catch (e) { PS.toast(e.message, "error"); }
+    },
+    async revoke(k) {
+      if (!await PS.confirm({ title: "Revoke API key", message: `“${k.name}” will stop working immediately for every client using it.`, confirmText: "Revoke", danger: true })) return;
+      try { await PS.api("DELETE", `/admin/keys/${k.id}`); PS.toast("API key revoked", "success"); this.load(); } catch (e) { PS.toast(e.message, "error"); }
+    },
+    copy(t) { navigator.clipboard.writeText(t || "").then(() => PS.toast("Copied to clipboard", "success")); },
+  };
+}
+</script>
+</body>
+</html>

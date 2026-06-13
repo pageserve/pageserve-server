@@ -1,0 +1,34 @@
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+aiofiles==23.2.1
+
+# Database
+sqlalchemy[asyncio]==2.0.35
+asyncpg==0.30.0
+alembic==1.13.3
+
+# Redis + Task queue
+redis[hiredis]==5.1.1
+arq==0.26.1
+
+# LLM
+litellm==1.83.7
+
+# PDF parsing
+pymupdf==1.26.4
+PyPDF2==3.0.1
+python-dotenv>=1.0.1
+pyyaml>=6.0.2
+
+# Auth
+bcrypt>=4.1,<6
+python-jose[cryptography]==3.3.0
+
+# Config
+pydantic-settings==2.5.2
+psutil==6.0.0
+
+# HTTP client
+httpx==0.28.1

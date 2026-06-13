@@ -1,0 +1,117 @@
+x-pageserve-env: &pageserve-env
+  DATABASE_URL:              postgresql+asyncpg://${POSTGRES_USER:-pageserve}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pageserve}
+  REDIS_URL:                 redis://redis:6379/0
+  LLM_BASE_URL:              ${LLM_BASE_URL}
+  LLM_API_KEY:               ${LLM_API_KEY:-empty}
+  LLM_MODEL:                 ${LLM_MODEL}
+  LLM_RETRIEVE_MODEL:        ${LLM_RETRIEVE_MODEL:-}
+  ADMIN_EMAIL:               ${ADMIN_EMAIL}
+  ADMIN_PASSWORD:            ${ADMIN_PASSWORD}
+  JWT_SECRET:                ${JWT_SECRET}
+  JWT_EXPIRE_HOURS:          ${JWT_EXPIRE_HOURS:-1}
+  REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+  FILES_DIR:                 /data/files
+  UPLOAD_DIR:                /tmp/uploads
+  MAX_FILE_SIZE_MB:          ${MAX_FILE_SIZE_MB:-}     # empty = auto-detect
+  WORKER_MAX_JOBS:           ${WORKER_MAX_JOBS:-}      # empty = auto-detect
+  PAGEINDEX_LLM_RETRIES:     ${PAGEINDEX_LLM_RETRIES:-3}  # retries per LLM call inside the tree build
+  RATE_LIMIT_PER_MINUTE:     ${RATE_LIMIT_PER_MINUTE:-0}
+  SMTP_HOST:                 ${SMTP_HOST:-}
+  SMTP_PORT:                 ${SMTP_PORT:-587}
+  SMTP_USER:                 ${SMTP_USER:-}
+  SMTP_PASSWORD:             ${SMTP_PASSWORD:-}
+  SMTP_FROM:                 ${SMTP_FROM:-}
+
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-pageserve}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB:       ${POSTGRES_DB:-pageserve}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pageserve}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Tuned for a small server (override for larger hosts)
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c effective_cache_size=512MB
+      -c max_connections=50
+      -c wal_buffers=16MB
+
+  # ── Redis ────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory ${REDIS_MAX_MEMORY:-512mb}
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── PageServe API ──────────────────────────────────────────────────────────
+  pageserve:
+    build: .
+    image: ${IMAGE_NAME:-pageserve-server}:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment: *pageserve-env
+    volumes:
+      - pdf_files:/data/files        # PDF files shared with worker
+      - ./ui:/app/ui:ro              # live-edit the Admin UI without rebuilding
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${API_MEMORY_LIMIT:-1G}
+        reservations:
+          memory: 256M
+
+  # ── ARQ Worker ───────────────────────────────────────────────────────────
+  worker:
+    build: .
+    image: ${IMAGE_NAME:-pageserve-server}:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command: arq worker.WorkerSettings
+    environment: *pageserve-env
+    healthcheck:
+      disable: true                  # worker has no HTTP server; the image's curl check would always fail
+    volumes:
+      - pdf_files:/data/files        # Same volume as the API
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${WORKER_MEMORY_LIMIT:-2G}   # Worker needs more RAM than API while indexing
+        reservations:
+          memory: 512M
+
+volumes:
+  postgres_data:
+  redis_data:
+  pdf_files:        # Shared between api + worker

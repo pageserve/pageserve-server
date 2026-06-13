@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Overview · pageserve</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/ui/assets/styles.css">
+  <script src="/ui/assets/core.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex">
+  <aside id="sidebar"></aside>
+  <div class="flex-1 flex flex-col h-screen overflow-hidden">
+    <header id="topbar"></header>
+    <main class="flex-1 overflow-auto p-6 max-w-6xl w-full mx-auto" x-data="page()" x-init="boot()" x-cloak>
+
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 ps-stagger">
+        <template x-for="c in cards" :key="c.label">
+          <div class="ps-card ps-card-hover rounded-2xl p-5">
+            <div class="flex items-center gap-2 text-xs font-medium text-zinc-500 uppercase tracking-wide">
+              <span class="text-brand-500" x-html="PS.icon(c.icon,'w-4 h-4')"></span><span x-text="c.label"></span>
+            </div>
+            <div class="text-2xl font-semibold mt-2 tracking-tight" x-text="c.value"></div>
+          </div>
+        </template>
+      </div>
+
+      <div class="grid lg:grid-cols-3 gap-4 ps-stagger">
+        <div class="lg:col-span-2 ps-card rounded-2xl p-5">
+          <div class="text-sm font-semibold mb-4">Queries · last 7 days</div>
+          <canvas id="queriesChart" height="90"></canvas>
+        </div>
+        <div class="ps-card rounded-2xl p-5">
+          <div class="text-sm font-semibold mb-4">Documents by status</div>
+          <div class="space-y-2.5">
+            <template x-for="s in docStatuses" :key="s.key">
+              <div class="flex items-center justify-between text-sm">
+                <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full" :class="s.dot"></span><span class="capitalize" x-text="s.key"></span></span>
+                <span class="font-medium" x-text="s.count"></span>
+              </div>
+            </template>
+            <div x-show="docStatuses.length===0" class="text-sm text-zinc-400">No data yet</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+<script>
+function page() {
+  return {
+    stats: null, chart: null,
+    get cards() {
+      const s = this.stats || {};
+      return [
+        { label: "Total queries", icon: "playground", value: s.queries_total ?? "–" },
+        { label: "Avg latency", icon: "refresh", value: (s.avg_latency_ms ?? 0) + " ms" },
+        { label: "Docs completed", icon: "check", value: s.documents_by_status?.completed ?? 0 },
+        { label: "Indexing", icon: "spark", value: s.documents_by_status?.indexing ?? 0 },
+      ];
+    },
+    get docStatuses() {
+      const m = this.stats?.documents_by_status || {};
+      const dot = { completed: "bg-emerald-500", indexing: "bg-blue-500", pending: "bg-amber-500", failed: "bg-red-500" };
+      return Object.entries(m).map(([key, count]) => ({ key, count, dot: dot[key] || "bg-zinc-400" }));
+    },
+    async boot() {
+      await PS.boot("dashboard", "Overview", "Usage metrics & system health");
+      try { this.stats = await PS.api("GET", "/admin/stats"); this.$nextTick(() => this.draw()); }
+      catch (e) { PS.toast(e.message, "error"); }
+    },
+    draw() {
+      const el = document.getElementById("queriesChart");
+      if (!el) return;
+      const dark = document.documentElement.classList.contains("dark");
+      const d = this.stats?.queries_by_day || [];
+      if (this.chart) this.chart.destroy();
+      this.chart = new Chart(el, {
+        type: "line",
+        data: { labels: d.map((x) => x.date), datasets: [{ data: d.map((x) => x.count), borderColor: "#dc2626", backgroundColor: "rgba(220,38,38,.12)", fill: true, tension: .35, pointRadius: 3, pointBackgroundColor: "#dc2626" }] },
+        options: { responsive: true, plugins: { legend: { display: false } },
+          scales: { x: { grid: { display: false }, ticks: { color: dark ? "#a1a1aa" : "#71717a" } },
+                    y: { grid: { color: dark ? "rgba(255,255,255,.06)" : "rgba(0,0,0,.06)" }, ticks: { color: dark ? "#a1a1aa" : "#71717a" }, beginAtZero: true } } },
+      });
+    },
+  };
+}
+</script>
+</body>
+</html>
