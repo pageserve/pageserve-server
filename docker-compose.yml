@@ -15,6 +15,7 @@ x-pageserve-env: &pageserve-env
   MAX_FILE_SIZE_MB:          ${MAX_FILE_SIZE_MB:-}     # empty = auto-detect
   WORKER_MAX_JOBS:           ${WORKER_MAX_JOBS:-}      # empty = auto-detect
   PAGEINDEX_LLM_RETRIES:     ${PAGEINDEX_LLM_RETRIES:-3}  # retries per LLM call inside the tree build
+  LLM_DISABLE_THINKING:      ${LLM_DISABLE_THINKING:-true} # Qwen: send chat_template_kwargs.enable_thinking=false
   RATE_LIMIT_PER_MINUTE:     ${RATE_LIMIT_PER_MINUTE:-0}
   SMTP_HOST:                 ${SMTP_HOST:-}
   SMTP_PORT:                 ${SMTP_PORT:-587}

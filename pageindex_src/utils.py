@@ -25,6 +25,13 @@ if not os.getenv("OPENAI_API_KEY") and os.getenv("CHATGPT_API_KEY"):
 litellm.drop_params = True
 
 
+def _extra_body():
+    """Disable Qwen "thinking" during indexing unless LLM_DISABLE_THINKING is off."""
+    if os.getenv("LLM_DISABLE_THINKING", "true").lower() in ("1", "true", "yes"):
+        return {"chat_template_kwargs": {"enable_thinking": False}}
+    return {}
+
+
 def count_tokens(text, model=None):
     if not text:
         return 0
@@ -46,6 +53,7 @@ def llm_completion(model, prompt, chat_history=None, return_finish_reason=False)
                 model=model,
                 messages=messages,
                 temperature=0,
+                extra_body=_extra_body(),
             )
             content = response.choices[0].message.content
             if return_finish_reason:
@@ -79,6 +87,7 @@ async def llm_acompletion(model, prompt):
                 model=model,
                 messages=messages,
                 temperature=0,
+                extra_body=_extra_body(),
             )
             return response.choices[0].message.content
         except Exception as e:

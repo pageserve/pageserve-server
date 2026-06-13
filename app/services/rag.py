@@ -28,6 +28,13 @@ import litellm  # noqa: E402
 
 MAX_ITERATIONS = 10
 
+# Disable Qwen "thinking" unless LLM_DISABLE_THINKING is turned off.
+_EXTRA_BODY = (
+    {"chat_template_kwargs": {"enable_thinking": False}}
+    if os.getenv("LLM_DISABLE_THINKING", "true").lower() in ("1", "true", "yes")
+    else {}
+)
+
 SYSTEM_PROMPT = """Bạn là trợ lý phân tích tài liệu chính xác.
 
 WORKFLOW:
@@ -232,7 +239,7 @@ async def run_query(doc_ids: list[str], question: str, redis: Redis) -> dict[str
             tools=tools,
             tool_choice="auto",
             temperature=0,
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            extra_body=_EXTRA_BODY,
         )
         msg = resp.choices[0].message
         messages.append(msg)
@@ -287,7 +294,7 @@ async def run_search(doc_ids: list[str], question: str, redis: Redis) -> list[di
             ],
             temperature=0,
             response_format={"type": "json_object"},
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            extra_body=_EXTRA_BODY,
         )
         try:
             nodes = json.loads(resp.choices[0].message.content)
@@ -354,7 +361,7 @@ async def stream_query(
                 tools=tools,
                 tool_choice="auto",
                 temperature=0,
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                extra_body=_EXTRA_BODY,
             )
             msg = resp.choices[0].message
             messages.append(msg)
