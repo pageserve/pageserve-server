@@ -41,6 +41,7 @@ No chunking, no embeddings, no vector database — PageServe asks an LLM to buil
 
 ## Table of contents
 
+- [Demo](#-demo)
 - [Why PageServe](#-why-pageserve)
 - [Architecture](#-architecture)
 - [Quick start](#-quick-start)
@@ -57,6 +58,18 @@ No chunking, no embeddings, no vector database — PageServe asks an LLM to buil
 - [Contributing](#-contributing)
 - [License](#-license)
 - [Acknowledgements](#-acknowledgements)
+
+---
+
+## 🎬 Demo
+
+A short walkthrough of PageServe — uploading a document, indexing, and querying with
+page-level citations.
+
+https://github.com/user-attachments/assets/157bac84-64f6-4014-bfe8-703c6208ce4c
+
+> [!TIP]
+> Prefer a local copy? **[Download the guide video](ui/assets/video_guide.mp4)** (5.8 MB).
 
 ---
 
