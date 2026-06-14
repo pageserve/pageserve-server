@@ -324,7 +324,7 @@
         sidebar.className = "w-64 shrink-0 bg-white/70 dark:bg-zinc-900/60 backdrop-blur-xl border-r border-zinc-200 dark:border-zinc-800/80 flex flex-col h-screen";
         sidebar.innerHTML = `
           <div class="h-16 flex items-center gap-2.5 px-5">
-            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white flex items-center justify-center shadow-[0_4px_14px_-4px_rgb(220_38_38/.55)]">${svg("spark", "w-5 h-5")}</div>
+            <img src="/ui/assets/logo.png" alt="PageServe" class="w-9 h-9 rounded-xl object-contain shadow-[0_4px_14px_-4px_rgb(220_38_38/.55)]" />
             <div><div class="font-semibold text-sm leading-tight tracking-tight">PageServe</div><div class="text-[11px] text-zinc-400">self-hosted RAG</div></div>
           </div>
           <nav class="flex-1 px-3 py-2 space-y-1 overflow-y-auto">${links}</nav>

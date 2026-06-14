@@ -1,23 +1,36 @@
 <div align="center">
 
+<img src="ui/assets/logo.png" alt="PageServe logo" width="128" height="128" />
+
 # PageServe
 
-**Self-hosted, vectorless document RAG — as a REST API, Python SDK, CLI, and MCP server.**
+### Self-hosted, vectorless document RAG
 
-Turn a folder of PDFs into a question-answering API with page-level citations.
-No chunking, no embeddings, no vector database — PageServe builds an LLM-generated
+**A REST API, Python SDK, CLI, and MCP server — all in one self-hosted stack.**
+
+Turn a folder of PDFs into a question-answering API with page-level citations.<br/>
+No chunking, no embeddings, no vector database — PageServe asks an LLM to build a
 *document structure tree* and navigates it to fetch exactly the pages that answer a question.
 
-[![Python](https://img.shields.io/badge/python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+<br/>
+
+[![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Redis](https://img.shields.io/badge/Redis-DC382D?logo=redis&logoColor=white)](https://redis.io/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+<br/>
+[![MCP](https://img.shields.io/badge/MCP-ready-000000?logo=anthropic&logoColor=white)](#-mcp-server)
 [![License: MIT](https://img.shields.io/badge/License-MIT-e11d48.svg)](LICENSE)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-e11d48.svg)](#contributing)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-e11d48.svg)](#-contributing)
 
-[Quick start](#quick-start) · [Configuration](#configuration) · [SDK](#python-sdk) · [REST API](#rest-api) · [MCP](#mcp-server) · [Admin UI](#admin-ui)
+<br/>
+
+[**Quick start**](#-quick-start) · [Configuration](#-configuration) · [SDK](#-python-sdk) · [REST API](#-rest-api) · [MCP](#-mcp-server) · [Admin UI](#-admin-ui)
 
 </div>
 
+> [!NOTE]
 > **Naming.** **PageServe** is the project. `pageserve` (lowercase) is the package,
 > CLI command, and Docker service name. PageServe wraps
 > [PageIndex OSS](https://github.com/VectifyAI/PageIndex) — the
@@ -26,7 +39,28 @@ No chunking, no embeddings, no vector database — PageServe builds an LLM-gener
 
 ---
 
-## Why PageServe
+## Table of contents
+
+- [Why PageServe](#-why-pageserve)
+- [Architecture](#-architecture)
+- [Quick start](#-quick-start)
+- [Configuration](#-configuration)
+- [REST API](#-rest-api)
+- [Python SDK](#-python-sdk)
+- [MCP server](#-mcp-server)
+- [CLI](#-cli)
+- [Admin UI](#-admin-ui)
+- [Authentication](#-authentication)
+- [Local development](#-local-development)
+- [Project structure](#-project-structure)
+- [Dependency notes](#-dependency-notes)
+- [Contributing](#-contributing)
+- [License](#-license)
+- [Acknowledgements](#-acknowledgements)
+
+---
+
+## 🎯 Why PageServe
 
 Classic RAG splits documents into chunks, embeds them, and runs a similarity search —
 which loses document structure and returns fragments without reliable provenance.
@@ -41,7 +75,7 @@ then walks that tree to read the precise pages a question needs.
 - **Batteries included** — REST API, Python SDK (sync + async), CLI, and an MCP server.
 - **Self-hosted** — runs entirely on your infrastructure against any OpenAI-compatible LLM.
 
-## Architecture
+## 🏗️ Architecture
 
 ```
                          ┌──────────────────────────────────────────┐
@@ -64,7 +98,7 @@ then walks that tree to read the precise pages a question needs.
 
 Full technical docs live in [`docs_internal/`](docs_internal/) (00–12).
 
-## Quick start
+## 🚀 Quick start
 
 PageServe ships as a Docker Compose stack (PostgreSQL + Redis + API + worker).
 
@@ -87,9 +121,9 @@ The API container runs database migrations and seeds the default admin
 after your first login.**
 
 From there: create a project → upload a PDF → wait for indexing → create an API key →
-query it from the [Playground](#admin-ui), the [SDK](#python-sdk), or [`curl`](#rest-api).
+query it from the [Playground](#-admin-ui), the [SDK](#-python-sdk), or [`curl`](#-rest-api).
 
-## Configuration
+## ⚙️ Configuration
 
 Set these in `.env` (see [`.env.example`](.env.example)):
 
@@ -105,7 +139,7 @@ Set these in `.env` (see [`.env.example`](.env.example)):
 | `WORKER_MAX_JOBS` | — | Concurrent indexing jobs. Empty → auto-detected. |
 | `RATE_LIMIT_PER_MINUTE` | — | Per-key rate limit. `0` disables it. |
 
-## REST API
+## 🔌 REST API
 
 The agent-facing endpoints live under `/v1` and use key-pair auth. Full reference at
 `http://localhost:8000/docs`.
@@ -156,7 +190,7 @@ want to feed passages into your own model or show source text directly. Response
 }
 ```
 
-## Python SDK
+## 🐍 Python SDK
 
 ```bash
 pip install pageserve            # core SDK
@@ -184,7 +218,7 @@ print(res.sources)       # "Annual Report 2024 p.22, 24"
 
 An `AsyncPageServeClient` is also available for querying many documents concurrently.
 
-## MCP server
+## 🤖 MCP server
 
 Plug PageServe directly into an agent (Claude Desktop, Cursor, …) over the Model Context Protocol:
 
@@ -197,7 +231,7 @@ pageserve mcp
 
 Exposed tools: `list_documents`, `query_document`, `get_page_content`, `get_document_structure`.
 
-## CLI
+## ⌨️ CLI
 
 ```bash
 export PAGESERVE_URL=http://localhost:8000
@@ -208,7 +242,7 @@ pageserve list                                    # list documents
 pageserve query DOC_UUID "what are the probation terms?"
 ```
 
-## Admin UI
+## 🖥️ Admin UI
 
 A multi-page admin console served at `/ui`:
 
@@ -223,7 +257,7 @@ string + `sessionStorage`, the access token lives only in memory (silently refre
 load), and a light/dark theme is persisted in `localStorage`. All shared behaviour lives
 in [`ui/assets/core.js`](ui/assets/core.js); pages only define their own Alpine component.
 
-## Authentication
+## 🔐 Authentication
 
 | Surface | Credentials | Endpoints |
 |---|---|---|
@@ -235,7 +269,7 @@ Pass key pairs via HTTP Basic (`base64("pk:sk")`) or the `X-PageServe-Public-Key
 (upload/delete/reindex/manage keys & webhooks). The public key is safe to expose; if a
 secret key leaks, revoke it immediately.
 
-## Local development
+## 🛠️ Local development
 
 ```bash
 source .venv/bin/activate
@@ -252,7 +286,7 @@ arq worker.WorkerSettings          # indexing worker (separate process)
 
 The Python codebase is fully type-annotated and `ruff check` passes clean.
 
-## Project structure
+## 📁 Project structure
 
 ```
 app/
@@ -270,13 +304,13 @@ pageindex_src/         PageIndex OSS clone — do not edit
 docs_internal/         technical deep-dives (00–12)
 ```
 
-## Dependency notes
+## 📦 Dependency notes
 
 - `asyncpg==0.30.0` — 0.29 fails to build on Python 3.13.
 - `httpx==0.28.1` — required by `litellm==1.83.7`.
 - `bcrypt` is used directly (not via `passlib`, which is unmaintained and breaks on bcrypt ≥ 4.1).
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please:
 
@@ -285,11 +319,11 @@ Contributions are welcome! Please:
 3. Run `ruff check` and ensure the app boots (`docker compose up`) before opening a PR.
 4. Write clear commit messages and describe the change in the PR body.
 
-## License
+## 📄 License
 
 Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
 
-## Acknowledgements
+## 🙏 Acknowledgements
 
 PageServe is built on top of [PageIndex](https://github.com/VectifyAI/PageIndex) by
 [Vectify AI](https://vectify.ai/) — the reasoning-based, vectorless document indexing

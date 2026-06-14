@@ -1,0 +1,92 @@
+# Production / no-repo deployment.
+# Runs pageserve-server straight from a published Docker Hub image — no build context,
+# no source checkout. You only need THIS file + a .env on the host.
+#
+#   IMAGE=<dockerhub-user>/pageserve-server:0.1.0 docker compose -f docker-compose.prod.yml up -d
+#
+# The image already contains the app, UI, pageindex_src, and migrations.
+
+x-pageserve-env: &pageserve-env
+  DATABASE_URL:              postgresql+asyncpg://${POSTGRES_USER:-pageserve}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pageserve}
+  REDIS_URL:                 redis://redis:6379/0
+  LLM_BASE_URL:              ${LLM_BASE_URL}
+  LLM_API_KEY:               ${LLM_API_KEY:-empty}
+  LLM_MODEL:                 ${LLM_MODEL}
+  LLM_RETRIEVE_MODEL:        ${LLM_RETRIEVE_MODEL:-}
+  LLM_DISABLE_THINKING:      ${LLM_DISABLE_THINKING:-true}
+  ADMIN_EMAIL:               ${ADMIN_EMAIL}
+  ADMIN_PASSWORD:            ${ADMIN_PASSWORD}
+  JWT_SECRET:                ${JWT_SECRET}
+  JWT_EXPIRE_HOURS:          ${JWT_EXPIRE_HOURS:-1}
+  REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+  FILES_DIR:                 /data/files
+  UPLOAD_DIR:                /tmp/uploads
+  MAX_FILE_SIZE_MB:          ${MAX_FILE_SIZE_MB:-}
+  WORKER_MAX_JOBS:           ${WORKER_MAX_JOBS:-}
+  WORKER_JOB_TIMEOUT:        ${WORKER_JOB_TIMEOUT:-1800}
+  WORKER_MAX_TRIES:          ${WORKER_MAX_TRIES:-2}
+  PAGEINDEX_LLM_RETRIES:     ${PAGEINDEX_LLM_RETRIES:-3}
+  PAGEINDEX_NODE_SUMMARY:    ${PAGEINDEX_NODE_SUMMARY:-yes}
+  PAGEINDEX_DOC_DESCRIPTION: ${PAGEINDEX_DOC_DESCRIPTION:-yes}
+  RATE_LIMIT_PER_MINUTE:     ${RATE_LIMIT_PER_MINUTE:-0}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-pageserve}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB:       ${POSTGRES_DB:-pageserve}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pageserve}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server --appendonly yes
+      --maxmemory ${REDIS_MAX_MEMORY:-512mb} --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pageserve:
+    image: ${IMAGE:?set IMAGE=<dockerhub-user>/pageserve-server:<tag>}
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment: *pageserve-env
+    volumes:
+      - pdf_files:/data/files
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    image: ${IMAGE:?set IMAGE=<dockerhub-user>/pageserve-server:<tag>}
+    restart: unless-stopped
+    command: arq worker.WorkerSettings
+    environment: *pageserve-env
+    healthcheck:
+      disable: true
+    volumes:
+      - pdf_files:/data/files
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+volumes:
+  postgres_data:
+  redis_data:
+  pdf_files:
