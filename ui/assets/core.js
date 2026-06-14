@@ -145,6 +145,33 @@
       return res.status === 204 ? null : res.json();
     },
 
+    /** Consume an SSE endpoint with the Bearer token (EventSource can't send headers).
+     *  Calls onMessage(parsedData) per `data:` line. Returns when the stream ends.
+     *  Pass opts.signal (AbortSignal) to stop early. */
+    async streamSSE(method, path, body, onMessage, opts = {}) {
+      const headers = { Authorization: `Bearer ${this.token}` };
+      if (body) headers["Content-Type"] = "application/json";
+      const res = await fetch(path, {
+        method, headers, body: body ? JSON.stringify(body) : undefined, signal: opts.signal,
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || "Stream failed");
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop();
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try { onMessage(JSON.parse(line.slice(6))); } catch { /* ignore keep-alive */ }
+          }
+        }
+      }
+    },
+
     // ── UI helpers ────────────────────────────────────────────────────────────
     toast(msg, type = "info") {
       let host = document.getElementById("ps-toasts");

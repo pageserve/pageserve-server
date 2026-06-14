@@ -107,15 +107,17 @@ async def index_document_task(ctx: dict[str, Any], doc_id: str, pdf_path: str) -
             # Don't spend LLM tokens on a doc that was deleted while extracting.
             await _checkpoint(db, redis, doc_id)
 
-            # Build tree with PageIndex OSS (sync fn → run in thread)
+            # Build tree with PageIndex OSS (sync fn → run in thread).
+            # Node summaries cost one LLM call per node; kept ON by default (original
+            # behaviour). Can be disabled via env to speed up indexing on slow LLMs.
             result = await asyncio.to_thread(
                 page_index,
                 pdf_path,
                 model=_fmt_model(settings.LLM_MODEL),
                 if_add_node_id="yes",
-                if_add_node_summary="yes",
+                if_add_node_summary=os.getenv("PAGEINDEX_NODE_SUMMARY", "yes"),
                 if_add_node_text="no",  # text already lives in the pages table
-                if_add_doc_description="yes",
+                if_add_doc_description=os.getenv("PAGEINDEX_DOC_DESCRIPTION", "yes"),
             )
             await _publish(redis, doc_id, {"status": "indexing", "progress": 80})
 
@@ -139,6 +141,13 @@ async def index_document_task(ctx: dict[str, Any], doc_id: str, pdf_path: str) -
             logger.info("Indexing cancelled for %s — discarding", doc_id)
             Path(pdf_path).unlink(missing_ok=True)
             return
+        except asyncio.CancelledError:
+            # ARQ cancelled the job (job_timeout). CancelledError is a BaseException,
+            # so the generic handler below misses it — mark the doc failed via an
+            # independent task (awaiting here would re-raise the cancellation).
+            logger.warning("Indexing timed out for %s", doc_id)
+            spawn(_mark_failed_bg(doc_id, "Indexing timed out (worker job_timeout exceeded)"))
+            raise
         except Exception as e:  # noqa: BLE001
             # Doc deleted underneath us? Treat as cancellation, not a failure.
             if await _is_cancelled(db, redis, doc_id):
@@ -220,6 +229,20 @@ async def _fire_webhook(doc_id: str, event: str) -> None:
     from app.services.webhook import fire_event_standalone
 
     await fire_event_standalone(doc_id, event)
+
+
+async def _mark_failed_bg(doc_id: str, msg: str) -> None:
+    """Mark a doc failed from outside the (cancelled) task — its own session/loop work."""
+    redis = await get_redis()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Document)
+            .where(Document.id == doc_id, Document.status == "indexing")
+            .values(status="failed", error_msg=msg, updated_at=func.now())
+        )
+        await db.commit()
+    await _publish(redis, doc_id, {"status": "failed", "error": msg})
+    spawn(_fire_webhook(doc_id, "document.failed"))
 
 
 async def recover_orphaned_documents() -> None:

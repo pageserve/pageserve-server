@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 
@@ -75,9 +76,9 @@ async def playground_query(
 
     start = time.time()
     if req.mode == "search":
-        results = await rag.run_search(doc_ids, req.question, redis)
-        elapsed_ms = int((time.time() - start) * 1000)
-        response = {"mode": "search", "elapsed_ms": elapsed_ms, "results": results}
+        retr = await rag.run_retrieve(doc_ids, req.question, redis)
+        elapsed_ms = retr.get("elapsed_ms", int((time.time() - start) * 1000))
+        response = {"mode": "search", "elapsed_ms": elapsed_ms, "results": retr["results"]}
     else:
         result = await rag.run_query(doc_ids, req.question, redis)
         elapsed_ms = result["elapsed_ms"]
@@ -111,8 +112,31 @@ async def playground_query_stream(
         raise HTTPException(400, "Không có tài liệu đã hoàn tất index để query")
 
     async def generate():
+        # Forward SSE lines while accumulating the result so we can save history.
+        answer, sources, results = "", [], []
+        t0 = time.time()
         async for line in rag.stream_query(doc_ids, req.question, req.mode, redis):
             yield line
+            if not line.startswith("data: "):
+                continue
+            try:
+                ev = json.loads(line[6:])
+            except json.JSONDecodeError:
+                continue
+            kind = ev.get("type")
+            if kind == "token":
+                answer += ev.get("content", "")
+            elif kind == "sources":
+                sources = ev.get("sources", [])
+            elif kind == "done" and req.mode == "search":
+                results = ev.get("results", [])
+        elapsed_ms = int((time.time() - t0) * 1000)
+        response = (
+            {"mode": "search", "results": results, "elapsed_ms": elapsed_ms}
+            if req.mode == "search"
+            else {"mode": "answer", "answer": answer, "sources": sources, "elapsed_ms": elapsed_ms}
+        )
+        spawn(_save_history(user.id, req.project_id, doc_ids, req.question, req.mode, response, elapsed_ms))
 
     return StreamingResponse(generate(), media_type="text/event-stream", headers=SSE_HEADERS)
 

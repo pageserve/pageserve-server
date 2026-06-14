@@ -14,7 +14,12 @@ from sqlalchemy import select
 from app.config import settings
 from app.db.models import Page, Structure
 from app.db.session import AsyncSessionLocal
-from app.services.cache import cache_query_result, get_cached_query, query_cache_key
+from app.services.cache import (
+    cache_query_result,
+    get_cached_query,
+    query_cache_key,
+    retrieve_cache_key,
+)
 
 # Set env BEFORE importing pageindex_src deps (litellm)
 os.environ["OPENAI_API_BASE"] = settings.LLM_BASE_URL
@@ -268,29 +273,37 @@ async def run_query(doc_ids: list[str], question: str, redis: Redis) -> dict[str
     return result
 
 
-# Search mode
+# Retrieve mode — return the FULL original content of relevant sections,
+# without synthesizing an answer (1 LLM call/doc, cheaper than answer mode).
+_RETRIEVE_SYSTEM = (
+    "Xác định các sections trong document tree liên quan nhất đến câu hỏi. "
+    "Trả về JSON array: [{node_id, title, start_index, end_index}], sắp xếp theo độ liên quan giảm dần. "
+    "Chỉ trả JSON, không giải thích."
+)
 
 
-async def run_search(doc_ids: list[str], question: str, redis: Redis) -> list[dict[str, Any]]:
-    """Navigate the tree and return raw section previews (1 LLM call/doc)."""
+async def run_retrieve(
+    doc_ids: list[str],
+    question: str,
+    redis: Redis,
+    max_sections: int = 6,
+    max_pages_per_section: int = 4,
+) -> dict[str, Any]:
+    """Return relevant sections' full page content (no answer synthesis)."""
+    start_ms = int(time.time() * 1000)
+    cache_key = retrieve_cache_key(doc_ids, question)
+    cached = await get_cached_query(redis, cache_key)
+    if cached:
+        return {**cached, "cached": True, "elapsed_ms": int(time.time() * 1000) - start_ms}
+
     results = []
     for doc_id in doc_ids:
         structure_json = await _get_structure(doc_id, redis)
         resp = await litellm.acompletion(
             model=_model(),
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Xác định các sections trong document tree liên quan đến câu hỏi. "
-                        "Trả về JSON array: [{node_id, title, start_index, end_index}]. "
-                        "Chỉ trả JSON, không giải thích."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"Tree:\n{structure_json}\n\nCâu hỏi: {question}",
-                },
+                {"role": "system", "content": _RETRIEVE_SYSTEM},
+                {"role": "user", "content": f"Tree:\n{structure_json}\n\nCâu hỏi: {question}"},
             ],
             temperature=0,
             response_format={"type": "json_object"},
@@ -304,16 +317,32 @@ async def run_search(doc_ids: list[str], question: str, redis: Redis) -> list[di
             nodes = []
 
         sections = []
-        for node in nodes[:5]:
-            start = node.get("start_index", 1)
-            end = min(node.get("end_index", start), start + 1)  # max 2-page preview
+        for node in nodes[:max_sections]:
+            start = int(node.get("start_index", 1))
+            end = int(node.get("end_index", start))
+            end = max(start, min(end, start + max_pages_per_section - 1))  # cap span
             _, fetched = await _get_pages(doc_id, f"{start}-{end}")
-            preview = (next(iter(fetched.values()), "") or "")[:300]
-            sections.append({"page": start, "title": node.get("title", ""), "preview": preview})
-
+            pages = [{"page": p, "content": c} for p, c in sorted(fetched.items())]
+            if pages:
+                sections.append(
+                    {
+                        "title": node.get("title", ""),
+                        "node_id": node.get("node_id"),
+                        "page_start": start,
+                        "page_end": end,
+                        "pages": pages,
+                    }
+                )
         if sections:
             results.append({"doc_id": doc_id, "sections": sections})
-    return results
+
+    result = {
+        "results": results,
+        "elapsed_ms": int(time.time() * 1000) - start_ms,
+        "cached": False,
+    }
+    await cache_query_result(redis, cache_key, result, doc_ids)
+    return result
 
 
 # Streaming (SSE)
@@ -331,8 +360,8 @@ async def stream_query(
     then token + sources + done. Search mode emits a single done with results.
     """
     if mode == "search":
-        results = await run_search(doc_ids, question, redis)
-        yield _sse("done", {"results": results})
+        retr = await run_retrieve(doc_ids, question, redis)
+        yield _sse("done", {"results": retr["results"]})
         return
 
     cache_key = query_cache_key(doc_ids, question)
@@ -345,7 +374,7 @@ async def stream_query(
 
     start_ms = int(time.time() * 1000)
     tools = _make_tools(doc_ids)
-    messages = [
+    messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": question},
     ]
@@ -355,44 +384,76 @@ async def stream_query(
 
     try:
         for _ in range(MAX_ITERATIONS):
-            resp = await litellm.acompletion(
+            # Stream each iteration so the final answer arrives token-by-token.
+            stream = await litellm.acompletion(
                 model=_model(),
                 messages=messages,
                 tools=tools,
                 tool_choice="auto",
                 temperature=0,
+                stream=True,
                 extra_body=_EXTRA_BODY,
             )
-            msg = resp.choices[0].message
-            messages.append(msg)
+            content_acc = ""
+            tool_acc: dict[int, dict[str, Any]] = {}  # index -> {id, name, args}
+            async for chunk in stream:
+                delta = chunk.choices[0].delta
+                if getattr(delta, "content", None):
+                    content_acc += delta.content
+                    yield _sse("token", {"content": delta.content})
+                for tcd in getattr(delta, "tool_calls", None) or []:
+                    idx = tcd.index if tcd.index is not None else 0
+                    slot = tool_acc.setdefault(idx, {"id": None, "name": "", "args": ""})
+                    if tcd.id:
+                        slot["id"] = tcd.id
+                    fn = getattr(tcd, "function", None)
+                    if fn is not None:
+                        if fn.name:
+                            slot["name"] = fn.name
+                        if fn.arguments:
+                            slot["args"] += fn.arguments
 
-            if resp.choices[0].finish_reason == "stop" or not msg.tool_calls:
-                answer = msg.content or ""
+            # No tool calls this turn → the streamed content IS the final answer.
+            if not tool_acc:
+                answer = content_acc
                 break
 
-            for i, tc in enumerate(msg.tool_calls):
-                tc_id = tc.id or f"tc_{i}"
+            # Reconstruct the assistant turn that requested tools, then run them.
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": content_acc or None,
+                    "tool_calls": [
+                        {
+                            "id": s["id"] or f"tc_{i}",
+                            "type": "function",
+                            "function": {"name": s["name"], "arguments": s["args"] or "{}"},
+                        }
+                        for i, s in sorted(tool_acc.items())
+                    ],
+                }
+            )
+            for i, s in sorted(tool_acc.items()):
+                tc_id = s["id"] or f"tc_{i}"
                 try:
-                    args = json.loads(tc.function.arguments)
+                    args = json.loads(s["args"] or "{}")
                 except json.JSONDecodeError:
                     args = {}
-                yield _sse("tool_start", {"id": tc_id, "name": tc.function.name, "args": args})
+                yield _sse("tool_start", {"id": tc_id, "name": s["name"], "args": args})
                 t0 = time.time()
-                content = await _run_tool(
-                    tc.function.name, args, doc_ids, redis, all_fetched, all_refs
-                )
-                messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
+                content = await _run_tool(s["name"], args, doc_ids, redis, all_fetched, all_refs)
+                messages.append({"role": "tool", "tool_call_id": tc_id, "content": content})
                 yield _sse("tool_done", {"id": tc_id, "elapsed": round(time.time() - t0, 2)})
     except Exception as e:  # noqa: BLE001
         yield _sse("error", {"message": str(e)})
         return
 
-    yield _sse("token", {"content": answer})
-    yield _sse("sources", {"sources": _build_sources(all_fetched, all_refs)})
+    sources = _build_sources(all_fetched, all_refs)
+    yield _sse("sources", {"sources": sources})
 
     result = {
         "answer": answer,
-        "sources": _build_sources(all_fetched, all_refs),
+        "sources": sources,
         "elapsed_ms": int(time.time() * 1000) - start_ms,
         "cached": False,
     }

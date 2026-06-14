@@ -121,6 +121,12 @@ curl -X POST http://localhost:8000/v1/query \
   -u "pk_live_xxx:sk_live_xxx" \
   -H "Content-Type: application/json" \
   -d '{"doc_id": "DOC_UUID", "question": "Summarize chapter 2"}'
+
+# Retrieve — get the relevant ORIGINAL passages, with no synthesized answer
+curl -X POST http://localhost:8000/v1/retrieve \
+  -u "pk_live_xxx:sk_live_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"doc_id": "DOC_UUID", "question": "probation terms"}'
 ```
 
 | Method | Path | Description |
@@ -129,8 +135,26 @@ curl -X POST http://localhost:8000/v1/query \
 | `GET` | `/v1/documents` | List documents. |
 | `GET` | `/v1/documents/{id}/structure` | Document structure tree. |
 | `GET` | `/v1/documents/{id}/pages/{pages}` | Raw page contents. |
-| `POST` | `/v1/query` | RAG query with citations. |
-| `POST` | `/v1/query/stream` | Query as an SSE stream. |
+| `POST` | `/v1/query` | RAG query — synthesized answer with citations. |
+| `POST` | `/v1/query/stream` | Answer query as an SSE stream. |
+| `POST` | `/v1/retrieve` | Retrieve relevant original passages — no answer synthesis. |
+
+**`/v1/query` vs `/v1/retrieve`** — `query` runs the full agent loop and returns a written
+answer plus its sources; `retrieve` runs a single tree-navigation call per document and returns
+the **raw page content** of the relevant sections (cheaper, no answer). Use `retrieve` when you
+want to feed passages into your own model or show source text directly. Response shape:
+
+```jsonc
+{
+  "doc_ids": ["..."], "question": "probation terms", "elapsed_ms": 820, "cached": false,
+  "results": [
+    { "doc_id": "...", "sections": [
+      { "title": "Probation", "node_id": "0006", "page_start": 24, "page_end": 25,
+        "pages": [ {"page": 24, "content": "..."}, {"page": 25, "content": "..."} ] }
+    ]}
+  ]
+}
+```
 
 ## Python SDK
 

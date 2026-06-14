@@ -118,19 +118,23 @@
               <template x-for="d in docs" :key="d.doc_id">
                 <tr class="ps-row group hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
                   <td class="px-4 py-3">
-                    <div class="flex items-center gap-2.5 min-w-0">
-                      <span class="text-zinc-400 shrink-0" x-html="PS.icon('docs','w-4 h-4')"></span>
+                    <a :href="'/ui/document.html?doc='+d.doc_id+'&project='+active.id" class="flex items-center gap-2.5 min-w-0 text-brand-600 dark:text-brand-400 hover:underline">
+                      <span class="shrink-0" x-html="PS.icon('docs','w-4 h-4')"></span>
                       <span class="font-medium truncate max-w-xs" x-text="d.name"></span>
-                    </div>
+                    </a>
                   </td>
-                  <td class="px-4 py-3"><span class="ps-badge" :class="PS.statusBadge(d.status)"><span class="w-1.5 h-1.5 rounded-full" :class="dotClass(d.status)" :style="d.status==='indexing'?'animation:ps-blink 1s steps(2) infinite':''"></span><span x-text="d.status"></span></span></td>
+                  <td class="px-4 py-3">
+                    <span class="ps-badge" :class="PS.statusBadge(d.status)"><span class="w-1.5 h-1.5 rounded-full" :class="dotClass(d.status)" :style="d.status==='indexing'?'animation:ps-blink 1s steps(2) infinite':''"></span><span x-text="d.status"></span></span>
+                    <span x-show="d._progress!=null && !['completed','failed'].includes(d.status)" class="ml-2 text-xs text-zinc-400 font-mono" x-text="(d._progress||0)+'%'"></span>
+                  </td>
                   <td class="px-4 py-3 text-zinc-500" x-text="(d.page_count||0)"></td>
                   <td class="px-4 py-3 text-zinc-500 text-xs whitespace-nowrap" x-text="d.created_at?PS.fmtRelative(d.created_at):'—'"></td>
                   <td class="px-4 py-3 text-right whitespace-nowrap">
-                    <div class="inline-flex opacity-0 group-hover:opacity-100 transition-opacity">
+                    <a :href="'/ui/document.html?doc='+d.doc_id+'&project='+active.id" class="ps-btn ps-btn-ghost !py-1.5 !px-3 text-xs" title="Open document">Open →</a>
+                    <span class="inline-flex opacity-0 group-hover:opacity-100 transition-opacity ml-1 align-middle">
                       <button @click="reindex(d)" class="ps-icon-btn !w-8 !h-8 hover:!text-brand-600" title="Reindex" x-html="PS.icon('refresh','w-4 h-4')"></button>
-                      <button @click="remove(d)" class="ps-icon-btn !w-8 !h-8 hover:!text-red-500 ml-1" title="Delete" x-html="PS.icon('trash','w-4 h-4')"></button>
-                    </div>
+                      <button @click="remove(d)" class="ps-icon-btn !w-8 !h-8 hover:!text-red-500" title="Delete" x-html="PS.icon('trash','w-4 h-4')"></button>
+                    </span>
                   </td>
                 </tr>
               </template>
@@ -178,7 +182,7 @@
 <script>
 function page() {
   return {
-    isAdmin: false, loading: true, projects: [], search: "", active: null, docs: [], _poll: null,
+    isAdmin: false, loading: true, projects: [], search: "", active: null, docs: [], _watchers: {},
     showCreate: false, form: { name: "", slug: "", description: "" },
     get filtered() {
       const q = this.search.trim().toLowerCase();
@@ -217,26 +221,35 @@ function page() {
       PS.setQuery({ project: id });
       await this.loadDocs();
     },
-    close() { this.active = null; this.docs = []; clearInterval(this._poll); PS.setQuery({ project: null }); this.load(); },
+    close() { this._stopWatchers(); this.active = null; this.docs = []; PS.setQuery({ project: null }); this.load(); },
     async loadDocs() {
-      try { const r = await PS.api("GET", `/admin/projects/${this.active.id}/documents`); this.docs = r.documents; }
+      try { const r = await PS.api("GET", `/admin/projects/${this.active.id}/documents`); this.docs = r.documents; this._watchAll(); }
       catch (e) { PS.toast(e.message, "error"); }
     },
-    pollDocs() {
-      clearInterval(this._poll); let n = 0;
-      this._poll = setInterval(async () => {
-        await this.loadDocs();
-        if (++n > 80 || this.docs.every((d) => ["completed", "failed"].includes(d.status))) clearInterval(this._poll);
-      }, 3000);
+    // Live progress over SSE — one stream per still-indexing doc (no polling).
+    _watchAll() {
+      for (const d of this.docs) {
+        if (!["completed", "failed"].includes(d.status) && !this._watchers[d.doc_id]) this._watchDoc(d.doc_id);
+      }
     },
+    _watchDoc(docId) {
+      const ac = new AbortController();
+      this._watchers[docId] = ac;
+      PS.streamSSE("GET", `/admin/documents/${docId}/progress`, null, (ev) => {
+        const cur = this.docs.find((x) => x.doc_id === docId);
+        if (cur) { if (typeof ev.progress === "number") cur._progress = ev.progress; if (ev.status) cur.status = ev.status; }
+        if (ev.status === "completed" || ev.status === "failed") { ac.abort(); delete this._watchers[docId]; this.loadDocs(); }
+      }, { signal: ac.signal }).catch(() => { delete this._watchers[docId]; });
+    },
+    _stopWatchers() { Object.values(this._watchers).forEach((ac) => ac.abort()); this._watchers = {}; },
     async upload(ev) {
       const file = ev.target.files[0]; if (!file) return;
       const fd = new FormData(); fd.append("file", file);
-      try { await PS.api("POST", `/admin/projects/${this.active.id}/documents`, fd); PS.toast("Uploaded — indexing…", "success"); this.pollDocs(); }
+      try { await PS.api("POST", `/admin/projects/${this.active.id}/documents`, fd); PS.toast("Uploaded — indexing…", "success"); this.loadDocs(); }
       catch (e) { PS.toast(e.message, "error"); }
       ev.target.value = "";
     },
-    async reindex(d) { try { await PS.api("POST", `/admin/documents/${d.doc_id}/reindex`); PS.toast("Reindex started", "success"); this.pollDocs(); } catch (e) { PS.toast(e.message, "error"); } },
+    async reindex(d) { try { await PS.api("POST", `/admin/documents/${d.doc_id}/reindex`); PS.toast("Reindex started", "success"); this.loadDocs(); } catch (e) { PS.toast(e.message, "error"); } },
     async remove(d) {
       if (!await PS.confirm({ title: "Delete document", message: `“${d.name}” and its index will be permanently removed. This can't be undone.`, confirmText: "Delete", danger: true })) return;
       try { await PS.api("DELETE", `/admin/documents/${d.doc_id}`); PS.toast("Document deleted", "success"); this.loadDocs(); } catch (e) { PS.toast(e.message, "error"); }

@@ -49,15 +49,38 @@
               <div x-show="docs.length===0" class="text-xs text-zinc-400">No documents</div>
             </div>
           </div>
-          <div class="p-4 flex-1 flex flex-col">
+          <div class="p-4 border-b border-zinc-200 dark:border-zinc-800">
             <div class="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Question</div>
             <textarea x-model="question" @input="persist()" @keydown.ctrl.enter="run()"
-                      class="ps-input flex-1 resize-none"
+                      rows="4" class="ps-input resize-none w-full"
                       placeholder="Ask a question… (Ctrl+Enter to run)"></textarea>
             <button @click="run()" :disabled="loading || !projectId || !question.trim()" class="ps-btn ps-btn-primary mt-3 w-full py-2.5">
               <span x-show="loading" class="ps-spin" x-html="PS.icon('refresh','w-4 h-4')"></span>
               <span x-text="loading ? 'Running…' : 'Run query'"></span>
             </button>
+          </div>
+
+          <!-- History -->
+          <div class="flex-1 flex flex-col min-h-0">
+            <div class="px-4 pt-3 pb-2 flex items-center justify-between">
+              <span class="text-xs font-medium text-zinc-500 uppercase tracking-wide">History</span>
+              <button @click="starredOnly=!starredOnly; loadHistory()" class="text-xs" :class="starredOnly?'text-amber-500':'text-zinc-400 hover:text-zinc-600'" title="Starred only">★</button>
+            </div>
+            <div class="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5">
+              <template x-for="h in history" :key="h.id">
+                <div class="group/h flex items-start gap-1.5 px-2 py-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800/60 cursor-pointer" @click="openHistory(h)">
+                  <button @click.stop="toggleStar(h)" class="shrink-0 mt-0.5 text-sm leading-none" :class="h.starred?'text-amber-400':'text-zinc-300 dark:text-zinc-600 hover:text-amber-400'">★</button>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm truncate" x-text="h.question"></div>
+                    <div class="text-[11px] text-zinc-400 flex items-center gap-1.5">
+                      <span x-text="h.mode"></span><span>·</span><span x-text="PS.fmtRelative(h.created_at)"></span>
+                    </div>
+                  </div>
+                  <button @click.stop="delHistory(h)" class="shrink-0 opacity-0 group-hover/h:opacity-100 text-zinc-400 hover:text-red-500" x-html="PS.icon('trash','w-3.5 h-3.5')"></button>
+                </div>
+              </template>
+              <div x-show="history.length===0" class="px-2 py-6 text-center text-xs text-zinc-400" x-text="projectId ? 'No history yet' : 'Select a project'"></div>
+            </div>
           </div>
         </div>
 
@@ -109,10 +132,18 @@
             <template x-for="r in (result?.results||[])" :key="r.doc_id">
               <div class="ps-card rounded-2xl overflow-hidden">
                 <div class="px-4 py-2.5 border-b border-zinc-200 dark:border-zinc-800 text-sm font-medium">📄 <span x-text="docName(r.doc_id)"></span></div>
-                <template x-for="s in r.sections" :key="s.page">
+                <template x-for="(s, si) in r.sections" :key="si">
                   <div class="px-4 py-3 border-t border-zinc-100 dark:border-zinc-800 first:border-t-0">
-                    <div class="flex items-center justify-between"><span class="text-sm font-medium" x-text="s.title"></span><span class="text-xs text-zinc-400 font-mono">p.<span x-text="s.page"></span></span></div>
-                    <p class="text-sm text-zinc-500 mt-1" x-text="s.preview"></p>
+                    <div class="flex items-center justify-between mb-2">
+                      <span class="text-sm font-medium" x-text="s.title || 'Section'"></span>
+                      <span class="text-xs text-zinc-400 font-mono" x-text="(s.page_end && s.page_end > s.page_start) ? ('p.'+s.page_start+'–'+s.page_end) : ('p.'+s.page_start)"></span>
+                    </div>
+                    <template x-for="pg in (s.pages||[])" :key="pg.page">
+                      <div class="mb-2">
+                        <div class="text-[11px] uppercase tracking-wide text-zinc-400 mb-0.5">trang <span x-text="pg.page"></span></div>
+                        <pre class="text-sm text-zinc-600 dark:text-zinc-300 whitespace-pre-wrap font-sans leading-relaxed" x-text="pg.content"></pre>
+                      </div>
+                    </template>
                   </div>
                 </template>
               </div>
@@ -129,12 +160,38 @@ function page() {
   return {
     projects: [], projectId: "", docs: [], docMode: "all", selectedDocIds: [],
     mode: "answer", question: "", loading: false, steps: [], stream: "", result: null,
+    history: [], starredOnly: false,
     async boot() {
       await PS.boot("playground", "Playground", "Query your documents directly");
       try { this.projects = await PS.api("GET", "/admin/projects"); } catch (e) { PS.toast(e.message, "error"); }
       this.projectId = PS.qs().get("project") || "";
       this.mode = PS.qs().get("mode") || "answer";
-      if (this.projectId) { this.question = sessionStorage.getItem("ps-q-" + this.projectId) || ""; await this.loadDocs(); }
+      if (this.projectId) { this.question = sessionStorage.getItem("ps-q-" + this.projectId) || ""; await this.loadDocs(); await this.loadHistory(); }
+    },
+    async loadHistory() {
+      if (!this.projectId) { this.history = []; return; }
+      try {
+        const q = `project_id=${this.projectId}&limit=30` + (this.starredOnly ? "&starred=true" : "");
+        this.history = await PS.api("GET", `/admin/playground/history?${q}`);
+      } catch (e) { /* ignore */ }
+    },
+    async openHistory(h) {
+      try {
+        const d = await PS.api("GET", `/admin/playground/history/${h.id}`);
+        this.question = d.question; this.persist();
+        this.setMode(d.mode); this.steps = []; this.stream = "";
+        const r = d.response || {};
+        this.result = d.mode === "search" ? { results: r.results || [] }
+          : { answer: r.answer || "", sources: r.sources || [], elapsed_ms: r.elapsed_ms, cached: false };
+      } catch (e) { PS.toast(e.message, "error"); }
+    },
+    async toggleStar(h) {
+      try { const r = await PS.api("POST", `/admin/playground/history/${h.id}/star`); h.starred = r.starred; }
+      catch (e) { PS.toast(e.message, "error"); }
+    },
+    async delHistory(h) {
+      try { await PS.api("DELETE", `/admin/playground/history/${h.id}`); this.history = this.history.filter((x) => x.id !== h.id); }
+      catch (e) { PS.toast(e.message, "error"); }
     },
     docName(id) { return (this.docs.find((d) => d.doc_id === id)?.name) || id.slice(0, 8); },
     label(name) { return { get_document_structure: "Reading document structure", get_page_content: "Reading page content" }[name] || name; },
@@ -145,6 +202,7 @@ function page() {
       this.selectedDocIds = []; this.result = null; this.steps = []; this.stream = "";
       this.question = this.projectId ? (sessionStorage.getItem("ps-q-" + this.projectId) || "") : "";
       await this.loadDocs();
+      await this.loadHistory();
     },
     async loadDocs() {
       this.docs = [];
@@ -180,7 +238,7 @@ function page() {
           }
         }
       } catch (e) { PS.toast(e.message, "error"); }
-      finally { this.loading = false; }
+      finally { this.loading = false; setTimeout(() => this.loadHistory(), 1200); }
     },
   };
 }

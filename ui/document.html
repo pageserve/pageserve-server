@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document · pageserve</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/ui/assets/styles.css">
+  <script src="/ui/assets/core.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 flex">
+  <aside id="sidebar"></aside>
+  <div class="flex-1 flex flex-col h-screen overflow-hidden">
+    <header id="topbar"></header>
+    <main class="flex-1 overflow-auto p-6 max-w-6xl w-full mx-auto" x-data="page()" x-init="boot()" x-cloak>
+
+      <a :href="'/ui/projects.html' + (doc?.project_id ? ('?project='+doc.project_id) : '')"
+         class="inline-flex items-center gap-1 text-sm text-brand-600 dark:text-brand-400 hover:underline mb-4">← Về project</a>
+
+      <!-- Header -->
+      <div class="ps-card rounded-2xl p-5 mb-5">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <h2 class="text-lg font-semibold truncate" x-text="doc?.name || '...'"></h2>
+            <div class="flex flex-wrap items-center gap-3 mt-2 text-xs text-zinc-500">
+              <span class="px-2 py-0.5 rounded-full font-medium" :class="PS.statusBadge(doc?.status)" x-text="doc?.status"></span>
+              <span x-show="doc?.page_count" x-text="(doc?.page_count||0)+' trang'"></span>
+              <span x-show="doc?.file_size" x-text="fmtSize(doc?.file_size)"></span>
+              <span x-text="'tạo ' + PS.fmtRelative(doc?.created_at)"></span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <a :href="'/files/'+docId+'.pdf'" target="_blank" class="ps-btn ps-btn-ghost text-sm" title="Mở PDF">📄 PDF</a>
+            <button @click="reindex()" class="ps-btn ps-btn-ghost text-sm" x-html="PS.icon('refresh','w-4 h-4')+'<span class=\'ml-1\'>Reindex</span>'"></button>
+            <button @click="remove()" class="ps-btn ps-btn-ghost text-sm text-red-500" x-html="PS.icon('trash','w-4 h-4')"></button>
+          </div>
+        </div>
+        <!-- Live progress -->
+        <div x-show="doc && !['completed','failed'].includes(doc.status)" class="mt-4">
+          <div class="flex justify-between text-xs text-zinc-500 mb-1"><span>Đang index...</span><span x-text="progress+'%'"></span></div>
+          <div class="h-2 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+            <div class="h-full bg-brand-600 transition-all duration-300" :style="'width:'+progress+'%'"></div>
+          </div>
+        </div>
+        <div x-show="doc?.status==='failed'" class="mt-3 text-sm text-red-600 dark:text-red-400" x-text="doc?.error_msg"></div>
+      </div>
+
+      <div class="grid lg:grid-cols-[300px_1fr] gap-5 items-start">
+        <!-- Structure tree -->
+        <div class="ps-card rounded-2xl overflow-hidden">
+          <div class="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 text-sm font-semibold">Cấu trúc tài liệu</div>
+          <div class="max-h-[74vh] overflow-auto py-2">
+            <template x-for="n in flatTree" :key="n.node_id || (n.title+n.start_index)">
+              <button @click="jump(n.start_index)"
+                      class="w-full text-left px-4 py-1.5 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/60 flex items-center gap-2"
+                      :class="pdfPage==n.start_index ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300' : ''"
+                      :style="'padding-left:'+(16 + n.depth*16)+'px'">
+                <span class="flex-1 truncate" x-text="n.title || '(untitled)'"></span>
+                <span class="text-xs text-zinc-400 font-mono shrink-0" x-text="'p.'+n.start_index+(n.end_index>n.start_index?('–'+n.end_index):'')"></span>
+              </button>
+            </template>
+            <div x-show="flatTree.length===0" class="px-4 py-6 text-sm text-zinc-400 text-center" x-text="doc?.status==='completed' ? 'Không có cấu trúc' : 'Chưa index xong'"></div>
+          </div>
+        </div>
+
+        <!-- PDF viewer (PDF.js — smooth in-place navigation) -->
+        <div class="ps-card rounded-2xl overflow-hidden flex flex-col">
+          <div class="px-4 py-2.5 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-2">
+            <span class="text-sm font-semibold flex-1">Tài liệu PDF</span>
+            <span class="text-xs text-zinc-400">Trang</span>
+            <input type="number" min="1" :max="numPages||1" x-model.number="pdfPage" @keydown.enter="jump(pdfPage)" class="ps-input !py-1.5 !w-16 text-sm text-center">
+            <span class="text-xs text-zinc-400" x-show="numPages" x-text="'/ '+numPages"></span>
+            <a :href="'/files/'+docId+'.pdf'" target="_blank" class="ps-btn ps-btn-ghost !py-1.5 text-sm ml-1">Mở tab ↗</a>
+          </div>
+          <div x-ref="pdfbox" @scroll.passive="onScroll()" class="relative h-[74vh] overflow-auto bg-zinc-200/60 dark:bg-zinc-950 p-3 space-y-3">
+            <div x-show="pdfLoading" class="absolute inset-0 flex items-center justify-center text-sm text-zinc-400 gap-2">
+              <span class="ps-spin" x-html="PS.icon('refresh','w-5 h-5')"></span><span x-text="pdfMsg || 'Đang tải PDF…'"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ask within this document -->
+      <div class="ps-card rounded-2xl overflow-hidden mt-5">
+        <div class="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-3">
+          <span class="text-sm font-semibold flex-1">Hỏi đáp trong tài liệu này</span>
+          <div class="flex rounded-lg bg-zinc-100 dark:bg-zinc-800 p-0.5 text-sm">
+            <button @click="qmode='answer'" :class="qmode==='answer'?'bg-white dark:bg-zinc-700 shadow-sm':'text-zinc-500'" class="px-3 py-1 rounded-md">Answer</button>
+            <button @click="qmode='search'" :class="qmode==='search'?'bg-white dark:bg-zinc-700 shadow-sm':'text-zinc-500'" class="px-3 py-1 rounded-md">Retrieve</button>
+          </div>
+        </div>
+        <div class="p-4">
+          <div class="flex gap-2">
+            <input x-model="question" @keydown.enter="ask()" :disabled="doc?.status!=='completed'"
+                   placeholder="Nhập câu hỏi..." class="ps-input text-sm flex-1 disabled:opacity-50">
+            <button @click="ask()" :disabled="loading || !question.trim() || doc?.status!=='completed'" class="ps-btn ps-btn-primary text-sm">
+              <span x-show="loading" class="ps-spin" x-html="PS.icon('refresh','w-4 h-4')"></span>
+              <span x-text="loading?'...':'Gửi'"></span>
+            </button>
+          </div>
+          <!-- answer -->
+          <div x-show="qmode==='answer' && (stream||answer)" class="mt-4 ps-prose" x-html="PS.renderCitations(stream||answer)"></div>
+          <!-- retrieve: relevant sections → click to jump the PDF -->
+          <div x-show="qmode==='search' && sections.length" class="mt-4">
+            <div class="text-xs text-zinc-500 mb-2">Các phần liên quan — bấm để mở đúng trang trong PDF:</div>
+            <div class="flex flex-wrap gap-2">
+              <template x-for="(s,si) in sections" :key="si">
+                <button @click="jump(s.page_start)" class="ps-btn ps-btn-ghost text-sm border border-zinc-200 dark:border-zinc-800">
+                  <span x-text="s.title||'Section'"></span>
+                  <span class="text-xs text-zinc-400 font-mono ml-1.5" x-text="'p.'+s.page_start+(s.page_end>s.page_start?('–'+s.page_end):'')"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+<script>
+function page() {
+  return {
+    docId: "", doc: null, progress: 0, _abort: null,
+    flatTree: [], pdfPage: 1, numPages: 0, pdfLoading: false, pdfMsg: "", _pdfDoc: null, _pageEls: {},
+
+    // Render the PDF with PDF.js so navigation is in-place (no reload).
+    async renderPdf() {
+      const box = this.$refs.pdfbox;
+      if (!box || !this.docId || this._pdfDoc) return;
+      this.pdfLoading = true; this.pdfMsg = "Đang tải PDF…";
+      try {
+        const pdfjs = await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4/build/pdf.min.mjs");
+        pdfjs.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4/build/pdf.worker.min.mjs";
+        const pdf = await pdfjs.getDocument(`/files/${this.docId}.pdf`).promise;
+        this._pdfDoc = pdf; this.numPages = pdf.numPages;
+        const dpr = window.devicePixelRatio || 1;
+        const cssWidth = Math.max(320, box.clientWidth - 24);
+        for (let n = 1; n <= pdf.numPages; n++) {
+          this.pdfMsg = `Đang render trang ${n}/${pdf.numPages}…`;
+          const pageObj = await pdf.getPage(n);
+          const base = pageObj.getViewport({ scale: 1 });
+          const scale = cssWidth / base.width;
+          const vp = pageObj.getViewport({ scale });
+          const canvas = document.createElement("canvas");
+          canvas.id = `pdfpage-${n}`;
+          canvas.className = "mx-auto shadow rounded bg-white block";
+          canvas.width = Math.floor(vp.width * dpr);
+          canvas.height = Math.floor(vp.height * dpr);
+          canvas.style.width = vp.width + "px";
+          canvas.style.height = vp.height + "px";
+          box.appendChild(canvas);
+          this._pageEls[n] = canvas;
+          await pageObj.render({ canvasContext: canvas.getContext("2d"), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
+        }
+        if (this.pdfPage > 1) this.jump(this.pdfPage);
+      } catch (e) {
+        this.pdfMsg = "Không tải được PDF: " + (e.message || e);
+        return;
+      } finally { this.pdfLoading = false; }
+    },
+    jump(p) {
+      this.pdfPage = Math.max(1, Math.min(parseInt(p) || 1, this.numPages || 1));
+      this._pageEls[this.pdfPage]?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    onScroll() {
+      // Reflect the page currently in view in the page-number box.
+      const box = this.$refs.pdfbox; if (!box || !this.numPages) return;
+      const mid = box.scrollTop + box.clientHeight / 3;
+      for (let n = 1; n <= this.numPages; n++) {
+        const el = this._pageEls[n]; if (!el) continue;
+        if (el.offsetTop <= mid && el.offsetTop + el.offsetHeight > mid) { this.pdfPage = n; break; }
+      }
+    },
+    qmode: "answer", question: "", loading: false, stream: "", answer: "", sections: [],
+
+    async boot() {
+      this.docId = PS.qs().get("doc") || "";
+      const u = await PS.boot("projects", "Tài liệu", "Chi tiết & truy vấn");
+      this._isAdmin = u.role === "admin";
+      if (!this.docId) { PS.toast("Thiếu doc id", "error"); return; }
+      await this.load();
+    },
+    async load() {
+      try {
+        this.doc = await PS.api("GET", `/admin/documents/${this.docId}`);
+        document.getElementById("page-title").textContent = this.doc.name;
+        this.$nextTick(() => this.renderPdf());  // the PDF exists regardless of index status
+        if (this.doc.status === "completed") await this.loadTree();
+        else if (this.doc.status !== "failed") this.watch();
+      } catch (e) { PS.toast(e.message, "error"); }
+    },
+    fmtSize(b) { if (!b) return ""; const mb = b/1048576; return mb >= 1 ? mb.toFixed(1)+" MB" : Math.round(b/1024)+" KB"; },
+
+    // Live progress via SSE
+    async watch() {
+      this._abort?.abort();
+      this._abort = new AbortController();
+      try {
+        await PS.streamSSE("GET", `/admin/documents/${this.docId}/progress`, null, (ev) => {
+          if (typeof ev.progress === "number") this.progress = ev.progress;
+          if (ev.status) this.doc.status = ev.status;
+          if (ev.status === "completed" || ev.status === "failed") { this._abort.abort(); this.load(); }
+        }, { signal: this._abort.signal });
+      } catch (e) { if (e.name !== "AbortError") { /* stream closed */ } }
+    },
+
+    async loadTree() {
+      try {
+        const tree = await PS.api("GET", `/admin/documents/${this.docId}/structure`);
+        this.flatTree = this.flatten(tree, 0);
+      } catch (e) { /* structure not ready */ }
+    },
+    flatten(nodes, depth) {
+      const out = [];
+      for (const n of (nodes || [])) {
+        out.push({ title: n.title, node_id: n.node_id, start_index: n.start_index, end_index: n.end_index ?? n.start_index, depth });
+        if (n.nodes?.length) out.push(...this.flatten(n.nodes, depth + 1));
+      }
+      return out;
+    },
+
+    async reindex() {
+      try { await PS.api("POST", `/admin/documents/${this.docId}/reindex`); PS.toast("Reindex bắt đầu", "success"); this.doc.status = "pending"; this.progress = 0; this.flatTree = []; this.watch(); }
+      catch (e) { PS.toast(e.message, "error"); }
+    },
+    async remove() {
+      if (!confirm(`Xóa "${this.doc?.name}"?`)) return;
+      try { await PS.api("DELETE", `/admin/documents/${this.docId}`); location.href = "/ui/projects.html" + (this.doc?.project_id ? ("?project="+this.doc.project_id) : ""); }
+      catch (e) { PS.toast(e.message, "error"); }
+    },
+
+    async ask() {
+      if (!this.question.trim() || this.doc?.status !== "completed") return;
+      this.loading = true; this.stream = ""; this.answer = ""; this.sections = [];
+      try {
+        await PS.streamSSE("POST", "/admin/playground/query/stream",
+          { project_id: this.doc.project_id, doc_ids: [this.docId], question: this.question, mode: this.qmode },
+          (ev) => {
+            if (ev.type === "token") this.stream += ev.content;
+            else if (ev.type === "sources") this.answer = this.stream;
+            else if (ev.type === "done" && this.qmode === "search") this.sections = (ev.results?.[0]?.sections) || [];
+            else if (ev.type === "error") PS.toast(ev.message, "error");
+          });
+      } catch (e) { PS.toast(e.message, "error"); }
+      finally { this.loading = false; }
+    },
+  };
+}
+</script>
+</body>
+</html>

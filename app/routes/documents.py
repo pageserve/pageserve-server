@@ -69,7 +69,7 @@ async def upload_document(
     # Backpressure — reject when the system is overloaded
     ram = psutil.virtual_memory()
     disk = psutil.disk_usage(settings.FILES_DIR)
-    queue_len = await redis.llen("arq:queue")
+    queue_len = await redis.zcard("arq:queue")
     if ram.available / ram.total < 0.15:
         raise HTTPException(503, "Hệ thống đang quá tải (RAM). Thử lại sau.")
     if disk.free < 1 * (1024**3):
@@ -129,7 +129,7 @@ async def upload_document(
     tmp_path.unlink(missing_ok=True)
 
     job = await _enqueue(str(doc.id), str(dest_path))
-    queue_position = await redis.llen("arq:queue")
+    queue_position = await redis.zcard("arq:queue")
 
     spawn(
         log_action(

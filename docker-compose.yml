@@ -15,6 +15,10 @@ x-pageserve-env: &pageserve-env
   MAX_FILE_SIZE_MB:          ${MAX_FILE_SIZE_MB:-}     # empty = auto-detect
   WORKER_MAX_JOBS:           ${WORKER_MAX_JOBS:-}      # empty = auto-detect
   PAGEINDEX_LLM_RETRIES:     ${PAGEINDEX_LLM_RETRIES:-3}  # retries per LLM call inside the tree build
+  PAGEINDEX_NODE_SUMMARY:    ${PAGEINDEX_NODE_SUMMARY:-yes}   # 1 LLM call PER NODE; set "no" to speed up indexing on slow LLMs
+  PAGEINDEX_DOC_DESCRIPTION: ${PAGEINDEX_DOC_DESCRIPTION:-yes} # 1 LLM call for a doc summary
+  WORKER_JOB_TIMEOUT:        ${WORKER_JOB_TIMEOUT:-1800}  # seconds before an index job times out
+  WORKER_MAX_TRIES:          ${WORKER_MAX_TRIES:-2}       # index job attempts (timeouts rarely benefit from retrying)
   LLM_DISABLE_THINKING:      ${LLM_DISABLE_THINKING:-true} # Qwen: send chat_template_kwargs.enable_thinking=false
   RATE_LIMIT_PER_MINUTE:     ${RATE_LIMIT_PER_MINUTE:-0}
   SMTP_HOST:                 ${SMTP_HOST:-}

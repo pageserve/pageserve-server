@@ -18,11 +18,21 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from starlette.responses import Response
 
 from app.config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("pageserve")
+
+
+class NoCacheStaticFiles(StaticFiles):
+    """Serve the Admin UI with revalidation so edits show up without a hard refresh."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
 
 
 def run_migrations() -> None:
@@ -106,7 +116,7 @@ app.include_router(webhooks_router)
 Path(settings.FILES_DIR).mkdir(parents=True, exist_ok=True)
 _UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 if _UI_DIR.exists():
-    app.mount("/ui", StaticFiles(directory=str(_UI_DIR), html=True), name="ui")
+    app.mount("/ui", NoCacheStaticFiles(directory=str(_UI_DIR), html=True), name="ui")
 app.mount("/files", StaticFiles(directory=settings.FILES_DIR), name="files")
 
 
@@ -172,7 +182,7 @@ async def health() -> dict[str, Any]:
         redis = await get_redis()
         await redis.ping()
         checks["redis"] = {"status": "ok", "latency_ms": int((time.time() - t0) * 1000)}
-        queue_len = await redis.llen("arq:queue")
+        queue_len = await redis.zcard("arq:queue")
     except Exception as e:  # noqa: BLE001
         checks["redis"] = {"status": "error", "error": str(e)}
         overall = "degraded"

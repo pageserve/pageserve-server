@@ -7,11 +7,20 @@ from typing import Any
 from redis.asyncio import Redis
 
 
-def query_cache_key(doc_ids: list[str], question: str) -> str:
-    """Stable key for a (docs, question) pair. Normalised to raise hit rate."""
+def _key(prefix: str, doc_ids: list[str], question: str) -> str:
     normalized = " ".join(question.strip().lower().split())
-    key = "|".join(sorted(doc_ids)) + ":" + normalized
-    return "qcache:" + hashlib.md5(key.encode()).hexdigest()
+    raw = "|".join(sorted(doc_ids)) + ":" + normalized
+    return prefix + hashlib.md5(raw.encode()).hexdigest()
+
+
+def query_cache_key(doc_ids: list[str], question: str) -> str:
+    """Stable key for an answer-mode (docs, question) pair."""
+    return _key("qcache:", doc_ids, question)
+
+
+def retrieve_cache_key(doc_ids: list[str], question: str) -> str:
+    """Stable key for a retrieve-mode (docs, question) pair."""
+    return _key("rcache:", doc_ids, question)
 
 
 QUERY_TTL = 1800  # 30 minutes

@@ -271,15 +271,26 @@ pageserve query DOC_UUID "what are the probation terms?"</code></pre></div>
                   <tr><td class="px-4 py-2 text-blue-600">GET</td><td class="px-4 py-2">/v1/documents</td><td class="px-4 py-2 font-sans text-zinc-500">List documents</td></tr>
                   <tr><td class="px-4 py-2 text-blue-600">GET</td><td class="px-4 py-2">/v1/documents/{id}/structure</td><td class="px-4 py-2 font-sans text-zinc-500">Structure tree</td></tr>
                   <tr><td class="px-4 py-2 text-blue-600">GET</td><td class="px-4 py-2">/v1/documents/{id}/pages/{pages}</td><td class="px-4 py-2 font-sans text-zinc-500">Page contents</td></tr>
-                  <tr><td class="px-4 py-2 text-emerald-600">POST</td><td class="px-4 py-2">/v1/query</td><td class="px-4 py-2 font-sans text-zinc-500">RAG query (with citations)</td></tr>
-                  <tr><td class="px-4 py-2 text-emerald-600">POST</td><td class="px-4 py-2">/v1/query/stream</td><td class="px-4 py-2 font-sans text-zinc-500">Query as an SSE stream</td></tr>
+                  <tr><td class="px-4 py-2 text-emerald-600">POST</td><td class="px-4 py-2">/v1/query</td><td class="px-4 py-2 font-sans text-zinc-500">RAG query — synthesized answer with citations</td></tr>
+                  <tr><td class="px-4 py-2 text-emerald-600">POST</td><td class="px-4 py-2">/v1/query/stream</td><td class="px-4 py-2 font-sans text-zinc-500">Answer query as an SSE stream</td></tr>
+                  <tr><td class="px-4 py-2 text-emerald-600">POST</td><td class="px-4 py-2">/v1/retrieve</td><td class="px-4 py-2 font-sans text-zinc-500">Relevant original passages — no answer</td></tr>
                 </tbody>
               </table>
             </div>
-            <p>Example upload with curl:</p>
+            <p><strong>query vs retrieve:</strong> <span class="ps-inline-code">/v1/query</span> runs the full agent loop and returns a written answer + sources; <span class="ps-inline-code">/v1/retrieve</span> runs one tree-navigation call per document and returns the <strong>raw page content</strong> of the relevant sections (cheaper, no synthesis). Use retrieve to feed passages into your own model or display source text.</p>
+            <p class="mt-4">Upload with curl:</p>
             <div class="ps-code"><button class="ps-copy" onclick="PS.copyBlock(this)"></button><pre><code>curl -X POST __BASE__/v1/documents \
   -u "pk_live_xxx:sk_live_xxx" \
   -F "file=@report.pdf"</code></pre></div>
+            <p class="mt-4">Retrieve relevant original passages (no answer):</p>
+            <div class="ps-code"><button class="ps-copy" onclick="PS.copyBlock(this)"></button><pre><code>curl -X POST __BASE__/v1/retrieve \
+  -u "pk_live_xxx:sk_live_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"doc_id": "DOC_UUID", "question": "probation terms"}'
+
+# → { "results": [ { "doc_id": "...", "sections": [
+#       { "title": "Probation", "page_start": 24, "page_end": 25,
+#         "pages": [ {"page": 24, "content": "..."} ] } ] } ] }</code></pre></div>
           </section>
 
           <!-- 10. Webhooks -->

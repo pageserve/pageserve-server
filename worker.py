@@ -43,8 +43,8 @@ class WorkerSettings:
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(os.environ["REDIS_URL"])
     max_jobs = _auto_max_jobs()
-    max_tries = 3  # retry up to 3 times
+    max_tries = int(os.getenv("WORKER_MAX_TRIES", "2"))  # retries (timeouts rarely benefit from more)
     retry_delay = 30  # wait 30s between retries
-    job_timeout = 1800  # 30 min timeout per job
+    job_timeout = int(os.getenv("WORKER_JOB_TIMEOUT", "1800"))  # seconds per job
     keep_result = 3600  # keep results for 1 hour
     queue_name = "arq:queue"

@@ -63,6 +63,31 @@ async def query(
     return {"doc_ids": doc_ids, "question": req.question, **result}
 
 
+@router.post("/retrieve")
+async def retrieve(
+    req: QueryRequest,
+    proj=Depends(require_scope("query")),
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
+) -> dict[str, Any]:
+    """Send a question, get back the relevant ORIGINAL page content from the
+    document(s) — no synthesized answer. Cheaper than /v1/query."""
+    project, data = proj
+    doc_ids = await _resolve_doc_ids(req, project.id, db)
+    result = await rag.run_retrieve(doc_ids, req.question, redis)
+
+    spawn(
+        log_action(
+            user_id=data.get("user_id"),
+            project_id=str(project.id),
+            action="retrieve",
+            resource=",".join(doc_ids),
+            detail={"question": req.question[:100], "cached": result.get("cached")},
+        )
+    )
+    return {"doc_ids": doc_ids, "question": req.question, **result}
+
+
 @router.post("/query/stream")
 async def query_stream(
     req: QueryRequest,
